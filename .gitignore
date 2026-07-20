@@ -1,0 +1,10 @@
+.DS_Store
+.env
+*.local
+*.local.*
+
+# 클로드 설정
+clients/*/*
+!clients/*/claude
+clients/*/claude/*
+!clients/*/claude/settings.json

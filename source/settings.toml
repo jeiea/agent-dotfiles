@@ -1,0 +1,38 @@
+[source]
+path = "source"
+
+[clients.claude]
+path = "clients/claude"
+plugins = ["codex-tools", "remote-skills"]
+main_agent = "main"
+
+[clients.opencode]
+path = "clients/opencode"
+plugins = ["codex-tools", "remote-skills"]
+main_agent = "main"
+
+[clients.codex]
+path = "clients/codex"
+plugins = ["claude-tools", "remote-skills"]
+main_agent = "main"
+
+[clients.codex.config]
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "xhigh"
+
+[clients.codex.config.features]
+apps = false
+
+[clients.codex.config.notice]
+hide_full_access_warning = true
+
+[clients.codex.config.tui]
+vim_mode_default = false
+
+[clients.codex.config.windows]
+sandbox = "elevated"
+
+[clients.pi]
+path = "clients/pi"
+plugins = ["claude-tools", "remote-skills"]
+main_agent = "main"

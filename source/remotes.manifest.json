@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "plugins": {
+    "remote-skills": {
+      "sources": {
+        "playwright-cli": {
+          "url": "github:microsoft/playwright-cli#main&path:/skills/playwright-cli",
+          "kind": "skill"
+        },
+        "skill-creator": {
+          "url": "github:anthropics/skills#main&path:/skills/skill-creator",
+          "kind": "skill"
+        }
+      }
+    }
+  }
+}

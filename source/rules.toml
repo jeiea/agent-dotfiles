@@ -1,0 +1,589 @@
+default_action = "passthrough"
+bash_unwrap_patterns = ["/^\\w+=(?:\\\"(?:\\\\.|[^\\\"])*\\\"|'(?:\\\\.|[^'])*'|\\S+)\\s+(.+)$/", "mise x * -- *", "/^timeout \\d\\S* (.+)$/"]
+
+[[rules]]
+tool = "PowerShell"
+action = "deny"
+reason = "가능한 bash를 사용하고 정말 Powershell이 필요하다면 턴을 종료하고 명시적으로 요청해주세요"
+[rules.match]
+command = "/.*/"
+
+[[rules]]
+tools = ["Bash", "Monitor"]
+[rules.match]
+patterns = [
+  "/^\\w+=\\S*\\s+(.+)$/",
+  "/^agent-slack message (list|get|draft)( .*)?$/",
+  ":",
+  "awk *",
+  "cat *",
+  "cd *",
+  "chmod *",
+  "claude --version",
+  "codex *",
+  "comm *",
+  "cp *",
+  "/^curl(?!.*\\s-[A-Za-z]*[dFTX])(?!.*\\s--(?:data|form|upload|json|request)) .+$/",
+  "dart *",
+  "date *",
+  "/^deno (check|fmt|test|lint|task|run|eval|info)( .*)?$/",
+  "diff *",
+  "dotnet *",
+  "echo *",
+  "env",
+  "fd *",
+  "fig *",
+  "find *",
+  "flutter *",
+  "/^gh .*?(issue|pr|run|release|repo) (view|list|watch)( .*)?$/",
+  "/^gh search (issues|prs|commits)( .*)?$/",
+  "/^gh api repos\\/[^\\s\\/]+\\/[^\\s\\/]+\\/(issues(\\/[0-9]+(\\/comments)?)?|pulls\\/[0-9]+\\/(comments|reviews)|readme)(\\s+--jq\\s+.*)?(\\s+-X\\s+GET.*)?$/",
+  "/^gh auth (status|switch).*$/",
+  "gh pr create --web *",
+  "gh pr ready *",
+  "/^gh repo create (?=.*--private( |$)).+$/",
+  "/^(git|yadm) (?!-C )(?!reset( .*)? (--hard|[\"']--hard[\"']|\\\\--hard)( |$))(?!push( |$))(?!stash drop( |$))(?!clean( |$)).+$/",
+  "/^(git|yadm) -C (?:\\\\ |\\S)+ (?!reset( .*)? (--hard|[\"']--hard[\"']|\\\\--hard)( |$))(?!push( |$))(?!stash drop( |$))(?!clean( |$)).+$/",
+  "/^yadm (?!-C )push((?! --force| -f($| )).)*$/",
+  "grep *",
+  "head *",
+  "jq *",
+  "ls *",
+  "mise *",
+  "mkdir *",
+  "mktemp *",
+  "msbuild *",
+  "netstat *",
+  "nvim *",
+  "/^(npx?|p?npm|yarn)( .*)?$/",
+  "base64 *",
+  "basename *",
+  "openssl rand *",
+  "pwd",
+  "qmd *",
+  "permcheck *",
+  "playwright-cli *",
+  "reg query *",
+  "prettier *",
+  "prettierd *",
+  "printf *",
+  "rg *",
+  "sd *",
+  "sed *",
+  "seq *",
+  "sleep *",
+  "sort *",
+  "tail *",
+  "/^tasklist( .*)?$/",
+  "terminal-notifier *",
+  "timeout *",
+  "tree *",
+  "true",
+  "uniq *",
+  "/^unzip -(l|p) .+$/",
+  "wc *",
+  "/^wmic .*\\bget\\b.*$/",
+  "xxd *",
+  "./gradlew *",
+]
+
+[[rules]]
+tools = ["Bash", "Monitor"]
+[rules.match]
+parse_error = true
+
+[[rules]]
+tools = ["Bash", "Monitor"]
+action = "deny"
+[rules.match]
+patterns = [
+  "find / *",
+  "rm -rf /*",
+]
+
+[[rules]]
+tools = ["Bash", "Monitor"]
+action = "deny"
+reason = "임시 코드 실행은 python 대신 deno eval/run 사용"
+[rules.match]
+patterns = ["python3 *", "python *"]
+
+[[rules]]
+tool = "Read"
+[rules.match]
+file_path = "/tmp/**"
+
+[[rules]]
+tools = ["Grep", "Glob"]
+[rules.match]
+path = "/^(?!(?:[A-Za-z]:)?[\\\\/]*$).+$/"
+
+[[rules]]
+tool = "Skill"
+[rules.match]
+skill = "/^(zettelkasten|codex|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments)$/"
+
+[[rules]]
+tool = "SlashCommand"
+[rules.match]
+command = "/draft-pr"
+
+[[rules]]
+tool = "WebFetch"
+[rules.match]
+domain = "/^(apple\\.github\\.io|developers\\.google\\.com|developers\\.openai\\.com|discourse\\.nixos\\.org|docs\\.anthropic\\.com|docs\\.codemagic\\.io|docs\\.deno\\.com|docs\\.sentry\\.io|every\\.to|fnox\\.jdx\\.dev|github\\.com|jsr\\.io|mise\\.jdx\\.dev|panda-css\\.com|podcasters\\.apple\\.com|pub\\.dev|raw\\.githubusercontent\\.com|www\\.npmjs\\.com)$/"
+
+[[rules]]
+tool = "WebSearch"
+[rules.match]
+query = "*"
+
+[[tests]]
+description = "npm test allow"
+tool = "Bash"
+input = { command = "npm test" }
+expect = "allow"
+
+[[tests]]
+description = "PowerShell tool deny"
+tool = "PowerShell"
+input = { command = "Get-ChildItem" }
+expect = "deny"
+
+[[tests]]
+description = "gh api pull review comments allow"
+tool = "Bash"
+input = { command = "gh api repos/example-org/example-web/pulls/1234/comments --jq '.[] | { user_login: .user.login, body, commit_id, path, line, start_line, position, created_at } | with_entries(select(.value | values))'" }
+expect = "allow"
+
+[[tests]]
+description = "gh api issues allow"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/issues --jq '.[] | .number' -X GET --paginate" }
+expect = "allow"
+
+[[tests]]
+description = "gh api issue body allow"
+tool = "Bash"
+input = { command = "gh api repos/example-org/sample-web/issues/123 --jq '{ user_login: .user.login, title, body, created_at } | with_entries(select(.value | values))'" }
+expect = "allow"
+
+[[tests]]
+description = "gh api issue comments allow"
+tool = "Bash"
+input = { command = "gh api repos/example-org/sample-web/issues/123/comments --jq '.[] | { user_login: .user.login, body, id, created_at } | with_entries(select(.value | values))'" }
+expect = "allow"
+
+[[tests]]
+description = "rg parse failure allow"
+tool = "Bash"
+input = { command = "rg term app/(private)/file.ts -n" }
+expect = "allow"
+
+[[tests]]
+description = "npx vitest allow"
+tool = "Bash"
+input = { command = "npx vitest run src/test.spec.ts" }
+expect = "allow"
+
+[[tests]]
+description = "xxd allow"
+tool = "Bash"
+input = { command = "xxd /path/to/file.tsx | tail -3" }
+expect = "allow"
+
+[[tests]]
+description = "gh api pull reviews allow"
+tool = "Bash"
+input = { command = "gh api repos/example-org/sample-web/pulls/123/reviews --jq '.[] | {id: .id, state: .state, body: .body, user: .user.login, submitted_at: .submitted_at}'" }
+expect = "allow"
+
+[[tests]]
+description = "git -C reset allow"
+tool = "Bash"
+input = { command = "git -C ../repo reset HEAD~1" }
+expect = "allow"
+
+[[tests]]
+description = "git reset pathspec allow"
+tool = "Bash"
+input = { command = "git reset HEAD -- pnpm-workspace.yaml src/app/ClientLayout.tsx" }
+expect = "allow"
+
+[[tests]]
+description = "git reset pathspec without revision allow"
+tool = "Bash"
+input = { command = "git reset -- pnpm-workspace.yaml" }
+expect = "allow"
+
+[[tests]]
+description = "git -C reset pathspec allow"
+tool = "Bash"
+input = { command = "git -C ../repo reset HEAD -- src/app/page.tsx" }
+expect = "allow"
+
+[[tests]]
+description = "git reset --hard passthrough"
+tool = "Bash"
+input = { command = "git reset --hard HEAD" }
+expect = "passthrough"
+
+[[tests]]
+description = "git -C reset --hard passthrough"
+tool = "Bash"
+input = { command = "git -C ../repo reset --hard HEAD" }
+expect = "passthrough"
+
+[[tests]]
+description = "git reset HEAD --hard passthrough"
+tool = "Bash"
+input = { command = "git reset HEAD --hard" }
+expect = "passthrough"
+
+[[tests]]
+description = "git reset quoted --hard passthrough"
+tool = "Bash"
+input = { command = 'git reset "--hard"' }
+expect = "passthrough"
+
+[[tests]]
+description = "git reset escaped --hard passthrough"
+tool = "Bash"
+input = { command = 'git reset \--hard' }
+expect = "passthrough"
+
+[[tests]]
+description = "git reset hard before pathspec passthrough"
+tool = "Bash"
+input = { command = "git reset --hard -- src/app/page.tsx" }
+expect = "passthrough"
+
+[[tests]]
+description = "git merge-base allow"
+tool = "Bash"
+input = { command = "git merge-base main HEAD" }
+expect = "allow"
+
+[[tests]]
+description = "git revert allow"
+tool = "Bash"
+input = { command = "git revert --no-edit HEAD" }
+expect = "allow"
+
+[[tests]]
+description = "git rm allow"
+tool = "Bash"
+input = { command = "git rm src/file.ts" }
+expect = "allow"
+
+[[tests]]
+description = "yadm push --force passthrough"
+tool = "Bash"
+input = { command = "yadm push --force" }
+expect = "passthrough"
+
+[[tests]]
+description = "yadm push force-with-lease passthrough"
+tool = "Bash"
+input = { command = "yadm push --force-with-lease" }
+expect = "passthrough"
+
+[[tests]]
+description = "yadm push -f passthrough"
+tool = "Bash"
+input = { command = "yadm push -f" }
+expect = "passthrough"
+
+[[tests]]
+description = "yadm push allow"
+tool = "Bash"
+input = { command = "yadm push" }
+expect = "allow"
+
+[[tests]]
+description = "yadm -C push allow"
+tool = "Bash"
+input = { command = "yadm -C ../repo push origin main" }
+expect = "passthrough"
+
+[[tests]]
+description = "yadm ls-tree allow"
+tool = "Bash"
+input = { command = "yadm ls-tree -r --name-only HEAD" }
+expect = "allow"
+
+[[tests]]
+description = "yadm reset hard passthrough"
+tool = "Bash"
+input = { command = "yadm reset --hard HEAD" }
+expect = "passthrough"
+
+[[tests]]
+description = "yadm clean passthrough"
+tool = "Bash"
+input = { command = "yadm clean -fd" }
+expect = "passthrough"
+
+[[tests]]
+description = "pwd allow"
+tool = "Bash"
+input = { command = "pwd" }
+expect = "allow"
+
+[[tests]]
+description = "basename allow"
+tool = "Bash"
+input = { command = "basename /path/to/file" }
+expect = "allow"
+
+[[tests]]
+description = "mise x codex high read-only allow"
+tool = "Bash"
+input = { command = "mise x -- codex --config model_reasoning_effort=high exec --sandbox read-only" }
+expect = "allow"
+
+[[tests]]
+description = "GIT_SEQUENCE_EDITOR rebase allow"
+tool = "Bash"
+input = { command = "GIT_SEQUENCE_EDITOR=\"sed -i '' 's/^pick /edit /'\" git rebase -i 05e3d1d8 2>&1" }
+expect = "allow"
+
+[[tests]]
+description = "gh api readme allow"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/readme --jq '.content'" }
+expect = "allow"
+
+[[tests]]
+description = "git clone allow"
+tool = "Bash"
+input = { command = "git clone --depth 1 https://github.com/owner/repo.git /tmp/repo" }
+expect = "allow"
+
+[[tests]]
+description = "git init allow"
+tool = "Bash"
+input = { command = "git init" }
+expect = "allow"
+
+[[tests]]
+description = "git push force-with-lease passthrough"
+tool = "Bash"
+input = { command = "git push --force-with-lease origin feature" }
+expect = "passthrough"
+
+[[tests]]
+description = "git push passthrough"
+tool = "Bash"
+input = { command = "git push origin feature" }
+expect = "passthrough"
+
+[[tests]]
+description = "git push force passthrough"
+tool = "Bash"
+input = { command = "git push --force origin feature" }
+expect = "passthrough"
+
+[[tests]]
+description = "git push -f passthrough"
+tool = "Bash"
+input = { command = "git push -f origin feature" }
+expect = "passthrough"
+
+[[tests]]
+description = "git clean passthrough"
+tool = "Bash"
+input = { command = "git clean -fd" }
+expect = "passthrough"
+
+[[tests]]
+description = "git stash drop passthrough"
+tool = "Bash"
+input = { command = "git stash drop stash@{0}" }
+expect = "passthrough"
+
+[[tests]]
+description = "rm root deny"
+tool = "Bash"
+input = { command = "rm -rf /" }
+expect = "deny"
+
+[[tests]]
+description = "chmod allow"
+tool = "Bash"
+input = { command = "chmod +x /d/tmp/rewrite_msgs.sh" }
+expect = "allow"
+
+[[tests]]
+description = "env allow"
+tool = "Bash"
+input = { command = "mise x -- env | grep -i deno" }
+expect = "allow"
+
+[[tests]]
+description = "mise config ls allow"
+tool = "Bash"
+input = { command = "mise config ls 2>/dev/null" }
+expect = "allow"
+
+[[tests]]
+description = "mise trust allow"
+tool = "Bash"
+input = { command = "mise trust" }
+expect = "allow"
+
+[[tests]]
+description = "gh repo create private allow"
+tool = "Bash"
+input = { command = "gh repo create example-org/example-repo --private --source=. --push" }
+expect = "allow"
+
+[[tests]]
+description = "gh repo create without private passthrough"
+tool = "Bash"
+input = { command = "gh repo create example-org/example-repo --public --source=. --push" }
+expect = "passthrough"
+
+[[tests]]
+description = "python3 deny"
+tool = "Bash"
+input = { command = "python3 -c \"print(1)\"" }
+expect = "deny"
+
+[[tests]]
+description = "grep with directory path allow"
+tool = "Grep"
+input = { pattern = "parseRequest", path = "D:\\Repos\\example-user\\sample-project\\src" }
+expect = "allow"
+
+[[tests]]
+description = "glob with relative path allow"
+tool = "Glob"
+input = { pattern = "**/*.toml", path = "source" }
+expect = "allow"
+
+[[tests]]
+description = "grep drive root passthrough"
+tool = "Grep"
+input = { pattern = "secret", path = "C:\\" }
+expect = "passthrough"
+
+[[tests]]
+description = "glob slash root passthrough"
+tool = "Glob"
+input = { pattern = "**/*", path = "/" }
+expect = "passthrough"
+
+[[tests]]
+description = "glob without path passthrough"
+tool = "Glob"
+input = { pattern = "**/*.ts" }
+expect = "passthrough"
+
+[[tests]]
+description = "colon noop allow"
+tool = "Bash"
+input = { command = ":" }
+expect = "allow"
+
+[[tests]]
+description = "timeout unwrap allow"
+tool = "Bash"
+input = { command = "timeout 40 mise run watch 2>&1 | head -15; true" }
+expect = "allow"
+
+[[tests]]
+description = "timeout unwrap deny propagates"
+tool = "Bash"
+input = { command = "timeout 40 rm -rf /" }
+expect = "deny"
+
+[[tests]]
+description = "curl get allow"
+tool = "Bash"
+input = { command = "curl -s \"https://api.nuget.org/v3-flatcontainer/xunit.v3/index.json\" | tail -c 400" }
+expect = "allow"
+
+[[tests]]
+description = "curl download allow"
+tool = "Bash"
+input = { command = "curl -s -o version.schema.json https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json" }
+expect = "allow"
+
+[[tests]]
+description = "curl head and write-out allow"
+tool = "Bash"
+input = { command = "curl -s -o /dev/null -w '%{http_code}' https://json.schemastore.org/version.json" }
+expect = "allow"
+
+[[tests]]
+description = "curl post passthrough"
+tool = "Bash"
+input = { command = "curl -X POST https://example.com/api" }
+expect = "passthrough"
+
+[[tests]]
+description = "curl data passthrough"
+tool = "Bash"
+input = { command = "curl -d 'a=1' https://example.com/api" }
+expect = "passthrough"
+
+[[tests]]
+description = "curl combined short flag with data passthrough"
+tool = "Bash"
+input = { command = "curl -sd 'a=1' https://example.com/api" }
+expect = "passthrough"
+
+[[tests]]
+description = "python deny"
+tool = "Bash"
+input = { command = "python -c \"print(1)\"" }
+expect = "deny"
+
+[[tests]]
+description = "jq allow"
+tool = "Bash"
+input = { command = "jq 'keys' config.json" }
+expect = "allow"
+
+[[tests]]
+description = "uniq allow"
+tool = "Bash"
+input = { command = "rg IDE | sort | uniq -c | sort -rn" }
+expect = "allow"
+
+[[tests]]
+description = "netstat allow"
+tool = "Bash"
+input = { command = "netstat -an | grep -E \":4455\\s\"" }
+expect = "allow"
+
+[[tests]]
+description = "tasklist allow"
+tool = "Bash"
+input = { command = "tasklist /fi \"imagename eq obs64.exe\" /fo list" }
+expect = "allow"
+
+[[tests]]
+description = "tasklist bare allow"
+tool = "Bash"
+input = { command = "tasklist | grep -i obs" }
+expect = "allow"
+
+[[tests]]
+description = "reg query allow"
+tool = "Bash"
+input = { command = "reg query \"HKLM\\SOFTWARE\\OBS Studio\" /ve" }
+expect = "allow"
+
+[[tests]]
+description = "wmic get allow"
+tool = "Bash"
+input = { command = "wmic process where \"name='obs64.exe'\" get ExecutablePath" }
+expect = "allow"
+
+[[tests]]
+description = "wmic delete passthrough"
+tool = "Bash"
+input = { command = "wmic process where \"name='obs64.exe'\" delete" }
+expect = "passthrough"
