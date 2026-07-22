@@ -1,7 +1,7 @@
 ---
 name: draft-pr
 description: 유저에게 PR 초안 폼을 띄웁니다
-allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(deno:*) Bash(yarn:*) Bash(pnpm:*) Skill(get-pr-changes)
+allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(deno:*) Bash(yarn:*) Bash(pnpm:*) Skill(get-pr-changes) Skill(flavor-review)
 ---
 
 # 맥락 수집
@@ -15,22 +15,14 @@ allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(deno:*) 
 
 # PR 리뷰
 
-리뷰를 위한 코드 수정이 필요하면 유저 확인 먼저 구하기
+이후 코드 수정이 필요하면 유저 확인 요청
 
-아래 기준으로 peer-review
+1. diff 밖 코드·외부 시스템의 잠재 이슈 나열
+2. flavor-review 스킬로 검토
+3. 예상 이슈를 저장소에서 검증하고 타당하거나 검증 불가한 항목만 유지
+4. 남은 이슈를 중요도순 정렬, 저장소 설정과 CI/CD 고려해 작업 계획 제안
 
-1. diff 미포함 코드, 외부 시스템 요소도 고려해 잠재된 까다로운 점을 나열
-   - 코드 품질과 모범 사례
-   - 잠재적 버그 또는 이슈
-   - 성능
-   - 보안
-   - 테스트 커버리지
-   - README 등 문서 업데이트 여부
-2. 저장소에서 확인 가능한 예상 이슈 확인 후 타당하거나 확인이 불가능한 경우
-   남기기
-3. 남은 이슈를 중요도순 정렬, 저장소 설정과 CI/CD 고려해 작업 계획 제안
-
-리뷰 결과를 제공하고 수정 제안이 있을 때만 진행 여부를 묻습니다
+리뷰 결과를 제공하고 수정 제안이 있을 때만 진행 여부 질의
 
 # PR 설명 및 제목 생성
 

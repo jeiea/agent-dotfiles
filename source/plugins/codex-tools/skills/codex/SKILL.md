@@ -19,6 +19,9 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4)
 동시에 오면 둘을 병합(`<stdin>` 블록)해 의도치 않은 프롬프트를 만들거나 stdin
 대기로 타임아웃한다.
 
+첫 프롬프트에 중첩 Codex의 `claude`, `peer-review`, `flavor-review` 재호출 금지
+명시.
+
 ```shell
 # 1. 로그 파일명 생성
 openssl rand -hex 4
@@ -26,6 +29,7 @@ openssl rand -hex 4
 
 # 2. 첫 실행
 codex --search --config model_reasoning_effort=xhigh exec --sandbox read-only - <<'PROMPT' 2>>/tmp/a1b2c3d4.log
+claude·peer-review·flavor-review 재호출 금지.
 작업 목록 및 계획을 알려주세요
 PROMPT
 
