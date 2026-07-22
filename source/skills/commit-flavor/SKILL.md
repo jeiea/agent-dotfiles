@@ -1,6 +1,6 @@
 ---
 name: commit-flavor
-description: git commit, amend 전 스킬 내용을 확인해 유저 선호 사항 확인 후 커밋
+description: git commit, amend 전 유저 선호 사항 확인 후 커밋
 allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff *) Bash(git add *) Bash(git commit *) Bash(gh * view *)
 ---
 
