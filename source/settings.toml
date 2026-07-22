@@ -3,7 +3,7 @@ path = "source"
 
 [clients.claude]
 path = "clients/claude"
-plugins = ["codex-tools", "remote-skills"]
+plugins = ["codex-tools", "memory-context", "remote-skills"]
 main_agent = "main"
 
 [clients.opencode]
@@ -13,7 +13,7 @@ main_agent = "main"
 
 [clients.codex]
 path = "clients/codex"
-plugins = ["claude-tools", "remote-skills"]
+plugins = ["claude-tools", "memory-context", "remote-skills"]
 main_agent = "main"
 
 [clients.codex.config]
@@ -22,6 +22,7 @@ plan_mode_reasoning_effort = "xhigh"
 
 [clients.codex.config.features]
 apps = false
+plugins = true
 
 [clients.codex.config.notice]
 hide_full_access_warning = true

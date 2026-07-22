@@ -10,17 +10,17 @@
     "settings": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net $SOA_URL/src/main.ts settings",
     "plugins": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=git $SOA_URL/src/main.ts plugins",
     "lint": "deno lint --fix",
-    "check": "deno check source/skills/**/*.ts",
+    "check": "deno check source/skills/**/*.ts source/plugins/**/*.ts",
     "test": {
       "dependencies": ["test:deno", "test:permcheck"]
     },
-    "test:deno": "deno test --allow-read --allow-write --allow-env --allow-run=git,jj --parallel source/",
-    "test:permcheck": "permcheck validate",
+    "test:deno": "deno test --allow-read --allow-write --allow-env --allow-run=git,jj,source/plugins/memory-context/bin/agent-memory --parallel source/",
+    "test:permcheck": "permcheck validate source/rules.toml",
     "build": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --env-file=.env --allow-net $SOA_URL/src/main.ts build",
-    "install": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net $SOA_URL/src/main.ts install"
+    "install": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=claude,codex $SOA_URL/src/main.ts install"
   },
   "fmt": {
-    "include": ["deno.json", "source/skills/**/*.ts"]
+    "include": ["deno.json", "source/skills/**/*.ts", "source/plugins/**/*.ts"]
   },
   "exclude": ["clients/**/*"],
   "lint": {

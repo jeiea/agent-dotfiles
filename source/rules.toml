@@ -16,6 +16,8 @@ patterns = [
   "/^agent-slack message (list|get|draft)( .*)?$/",
   ":",
   "awk *",
+  '/^"?[^\"]*\/memory-context(?:\/[^\"]+)?\/bin\/agent-memory"? (get|list|put|reindex)( .*)?$/',
+  "/^agent-memory (get|list|put|reindex)( .*)?$/",
   "cat *",
   "cd *",
   "chmod *",
@@ -137,6 +139,36 @@ domain = "/^(apple\\.github\\.io|developers\\.google\\.com|developers\\.openai\\
 tool = "WebSearch"
 [rules.match]
 query = "*"
+
+[[tests]]
+description = "plugin-local agent-memory put allow"
+tool = "Bash"
+input = { command = '"/path with spaces/memory-context/bin/agent-memory" put repository-policy --trigger session' }
+expect = "allow"
+
+[[tests]]
+description = "agent-memory CLI allow"
+tool = "Bash"
+input = { command = "agent-memory list" }
+expect = "allow"
+
+[[tests]]
+description = "unrelated agent-memory path passthrough"
+tool = "Bash"
+input = { command = '"/tmp/unrelated/bin/agent-memory" list' }
+expect = "passthrough"
+
+[[tests]]
+description = "agent-memory hook passthrough"
+tool = "Bash"
+input = { command = "agent-memory hook" }
+expect = "passthrough"
+
+[[tests]]
+description = "agent-memory missing subcommand passthrough"
+tool = "Bash"
+input = { command = "agent-memory" }
+expect = "passthrough"
 
 [[tests]]
 description = "npm test allow"

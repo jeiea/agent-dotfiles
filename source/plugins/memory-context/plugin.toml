@@ -1,0 +1,4 @@
+name = "memory-context"
+description = "Inject machine-local repository memory into Claude Code and Codex sessions"
+version = "0.1.0"
+mode = "native"

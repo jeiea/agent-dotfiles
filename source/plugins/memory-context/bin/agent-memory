@@ -1,0 +1,5 @@
+#!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-env=AGENT_MEMORY_SHARED_DIR,AGENT_MEMORY_STATE_DIR,AGENT_MEMORY_OUTPUT_BUDGET,AGENT_MEMORY_DEBUG,AGENT_MEMORY_CLIENT,PLUGIN_ROOT,PLUGIN_DATA,CLAUDE_PLUGIN_ROOT,CLAUDE_PLUGIN_DATA,XDG_STATE_HOME,HOME --allow-run=git
+
+import { main } from "../scripts/memory.ts";
+
+await main();
