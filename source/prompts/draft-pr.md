@@ -1,7 +1,7 @@
 ---
 name: draft-pr
 description: 유저에게 PR 초안 폼을 띄웁니다
-allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(deno:*) Bash(yarn:*) Bash(pnpm:*) Skill(get-pr-changes)
+allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(deno:*) Bash(yarn:*) Bash(pnpm:*) Skill(get-pr-changes)
 ---
 
 # 맥락 수집
@@ -38,11 +38,10 @@ allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(deno:*) Bash(yarn:*) Bash(p
 - 섹션별로 해당하는 내용이 없다면 비움
 - 섹션: PR 템플릿에 대응시키거나 템플릿이 없을 시 사용
   - 배경: 변경 동기(예: 근거 URL, 재현 가능한 문제, 실패 명령어, 에러 핵심 발췌)
-  - 변경사항: 실제 해결 방법, 사용자/개발자 관점 변경
-    - 3줄 내외
-  - 코멘트: 고민, 폐기한 대안, 리뷰어에게 유용한 정보 등
-  - 테스트 방법: 검증 명령어 등
-    - 검증 여부를 `[ ]`, `[x]`로 표시
+  - 변경점: 독립적인 변경 의도마다 한 항목
+    - 가급적 압축
+  - 코멘트: 추론, 고민, 폐기한 대안, 리뷰어에게 유용한 정보 등
+  - 테스트 방법: commit-flavor의 검증 섹션을 따름
 - 항목당 1줄씩 간결히 작성, 마크다운 링크 적극 사용
 
 # 폼 띄우기
