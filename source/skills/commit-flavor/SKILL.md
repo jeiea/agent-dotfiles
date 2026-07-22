@@ -27,17 +27,18 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
     - `코멘트`, `Comment`
       - 시행착오, 유저 의도
       - 이 커밋하고만 연관된 유저 프롬프트 등
-    - `검증`, `Verification`: 요구사항 검증 방법, 명령어, 그 결과 등
-      - 요구사항 확인에 가까운 순으로 최대 3개
-      - git diff --check는 요구 사항 검증이 아님
+    - `검증`, `Verification`: 변경 의도와 요구사항을 검증한 방법, 명령어, 그
+      결과 등
+      - 요구사항 확인에 가까운 순 최대 3개
+      - 린트, 타입 검사, 포맷, `git diff --check`는 생략
+      - 제3자가 재현 가능해야 함
   - 전부 커밋 내용에서 알 수 있는 정보면 해당 섹션 생략
 - URL은 서드파티 추적 인자가 아닌 한 해시까지도 최대한 보존
 - 이슈, PR 코멘트, 슬랙 스레드 URL 같은 배경 또는 '왜'를 '무엇'보다 포함하려
   노력
   - 선호: 레이스 컨디션 방지
   - 지양: exists 제거
-- 커밋 내용의 30% 이상 수정 또는 리뷰 등으로 협업한 모델을 알고 있다면 아래
-  정보를 모델명 중복없이 추가
+- 실제 변경에 기여한 것으로 확인한 모델 정보를 중복 없이 추가
   - `AI-assistant: {models}`
   - 설계, 구현, 리뷰 순으로 배치, 즉 설계한 모델을 먼저 기입
   - codex gpt는 다음 명령어로 모델 버전 확인
@@ -54,7 +55,8 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
 ```
 feat: expand button for touch ux
 
-- [x] playwright chrome/safari - verify margin change
+- [x] `pnpm test -- src/e2e.test.ts` - pass
+- [x] `pnpm exec playwright test src/e2e.test.ts --project=chromium --project=webkit` - margin change verified
 
 AI-assistant: GPT-5.5
 ```
@@ -68,8 +70,7 @@ refactor: 임포트 맵 키 경고 해결
 `- Import map: Invalid top-level key "tasks". Only "imports" and "scopes" can be present.`
 
 [검증]
-- [x] deno check src/main.ts - 통과
-- [ ] 실기기 페이지 진입 후 배너 노출 확인
+- [x] `deno run cli/main.ts` - 경고 제거 확인
 
 AI-assistant: GPT-5.5, Opus 4.6
 ```
