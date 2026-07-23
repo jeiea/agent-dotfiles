@@ -22,3 +22,11 @@ allowed-tools: Skill(peer-review)
   - 판정 정보 부족·해석 여지: 확인 사항과 함께 `Follow-up`
   - 확인된 위반: `Must fix now`
   - 위반 아닌 개선·취향: `Consider`
+
+# 재판정 시
+
+- peer-review 검증 후 flavor 지적 판정
+  - 위반: 근거 flavor 원문이 권고형이면 `Consider`, 아니면 `Must fix now`
+  - 위반 아님: `Consider` 또는 기각
+  - 확인 불가: `Follow-up`
+- `Must fix now`가 하나라도 있으면 최종 `Verdict: NP`
