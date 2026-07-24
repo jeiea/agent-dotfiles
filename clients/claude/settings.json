@@ -114,6 +114,7 @@
       "/tmp"
     ]
   },
+  "model": "opus[1m]",
   "hooks": {
     "Notification": [
       {
@@ -186,6 +187,5 @@
   "skipAutoPermissionPrompt": true,
   "feedbackSurveyState": {
     "lastShownTime": 1754035295901
-  },
-  "model": "claude-fable-5[1m]"
+  }
 }
