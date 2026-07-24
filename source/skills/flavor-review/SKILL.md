@@ -17,11 +17,10 @@ allowed-tools: Skill(peer-review)
 - 변경에 유관 flavor가 있을 때 별도 검토
   - 기본 기준 제외
   - 각 flavor 이름과 원문 전달
-  - 각 flavor 항목의 준수 여부와 대안을 폭넓게 제시
-  - 각 지적에 근거 flavor 항목 인용
-  - 판정 정보 부족·해석 여지: 확인 사항과 함께 `Follow-up`
-  - 확인된 위반: `Must fix now`
-  - 위반 아닌 개선·취향: `Consider`
+  - 각 지적에 근거 flavor 인용
+  - 위반 + 비권고형 원문 → Must fix now
+  - 위반 + 권고형 원문 → Consider
+  - 사소하더라도 최대 10가지 제안
 
 # 재판정 시
 
@@ -29,4 +28,3 @@ allowed-tools: Skill(peer-review)
   - 위반: 근거 flavor 원문이 권고형이면 `Consider`, 아니면 `Must fix now`
   - 위반 아님: `Consider` 또는 기각
   - 확인 불가: `Follow-up`
-- `Must fix now`가 하나라도 있으면 최종 `Verdict: NP`
