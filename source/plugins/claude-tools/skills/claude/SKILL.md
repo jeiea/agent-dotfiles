@@ -23,13 +23,13 @@ openssl rand -hex 4
 # → e.g. a1b2c3d4
 
 # 2. 첫 실행 (리터럴 경로)
-claude -p --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
+claude -p --model fable --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
 
 # 3. 세션 ID, 응답, 모델별 USD 비용 추출
 jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsage // {}) | with_entries(.value = (.value.costUSD // 0)))} | @json)' /tmp/a1b2c3d4.jsonl
 
 # 4. 세션 재개 + stream-json (리터럴 경로 + heredoc)
-claude -p --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' --resume sess_abc123 - <<'EOF' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
+claude -p --model fable --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' --resume sess_abc123 - <<'EOF' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
 Reflect follow-ups.
 Append suggestions.
 EOF
@@ -65,7 +65,7 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
 
 ## 플래그 예시
 
-- `--model <model>`: `fable`(기본), `opus`(사용량 오류 시)
+- `--model <model>`: `fable` 우선, 사용량 오류 시 `opus`
 - `--effort <level>`: `xhigh`(계획), `high`(구현, 리뷰), `medium`
 - `--permission-mode <mode>`
   - `acceptEdits`: 보호된 디렉토리를 제외한 파일 읽기 및 편집 (별도 지시 없을 시
@@ -81,4 +81,4 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
 
 1. 서브에이전트가 적합한 작업 범위인지
 2. 병렬화 가능한지
-3. 위험도에 따른 permission mode, 모델, effort 수준
+3. 위험도에 따른 권한, effort 수준
