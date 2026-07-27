@@ -63,9 +63,10 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
 - 사용자 중단, 프로세스 종료, 명확한 에러 외에는 `kill`, 재시도, permission mode
   변경, 대체 위임 금지
 
-## 플래그 예시
+## 플래그
 
-- `--model <model>`: `fable` 우선, 사용량 오류 시 `opus`
+- `--model <model>`: `fable` 우선. 사용량 오류 시 `opus`로 원래 요청 그대로
+  재시도.
 - `--effort <level>`: `xhigh`(계획), `high`(구현, 리뷰), `medium`
 - `--permission-mode <mode>`
   - `acceptEdits`: 보호된 디렉토리를 제외한 파일 읽기 및 편집 (별도 지시 없을 시
