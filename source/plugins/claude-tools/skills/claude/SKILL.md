@@ -23,13 +23,13 @@ openssl rand -hex 4
 # → e.g. a1b2c3d4
 
 # 2. 첫 실행 (리터럴 경로)
-claude -p --model fable --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
+claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
 
 # 3. 세션 ID, 응답, 모델별 USD 비용 추출
 jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsage // {}) | with_entries(.value = (.value.costUSD // 0)))} | @json)' /tmp/a1b2c3d4.jsonl
 
 # 4. 세션 재개 + stream-json (리터럴 경로 + heredoc)
-claude -p --model fable --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' --resume sess_abc123 - <<'EOF' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
+claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' --resume sess_abc123 - <<'EOF' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
 Reflect follow-ups.
 Append suggestions.
 EOF
@@ -65,7 +65,7 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
 
 ## 플래그
 
-- `--model <model>`: `fable` 우선. 사용량 오류 시 `opus`로 원래 요청 그대로
+- `--model <model>`: `best` 우선. 사용량 오류 시 `opus`로 원래 요청 그대로
   재시도.
 - `--effort <level>`: `xhigh`(계획), `high`(구현, 리뷰), `medium`
 - `--permission-mode <mode>`
