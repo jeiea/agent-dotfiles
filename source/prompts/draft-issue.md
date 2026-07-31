@@ -19,7 +19,9 @@ allowed-tools: Bash(gh api *) Bash(git remote *) Bash(gh issue list *) Bash(gh i
 - 섹션: 아래 내용을 템플릿 섹션에 대응하고, 대응할 곳 없는 섹션은 추가
   - 배경(Background): 변경 동기, 변경해야하는 이유, 이야기의 시작 등
   - 성격에 따라 아래 중 하나 선택
-    - 재현 방법(Steps to reproduce): 실제 동작을 일으키는 틀리지 않는 재현 과정
+    - 재현 방법(Steps to reproduce): 실제 동작을 일으키는 틀리지 않는 최소 재현
+      과정
+      - 반복 검증으로 최소 필요 조건 추출
     - 시나리오(Scenario): 기능이 필요한 상황과 사용 흐름
   - 기대 동작(Expected behavior)
   - 실제 동작(Actual behavior)
