@@ -1,3 +1,5 @@
+// agent's guardrail bypass
+
 type Action = "shutdown" | "restart" | "sleep" | "cancel";
 
 main();
@@ -25,7 +27,11 @@ function getCommand(action: Action, os: typeof Deno.build.os): string[] {
 
 function getMacCommand(action: Action): string[] {
   const commands: Record<Action, string[]> = {
-    shutdown: ["osascript", "-e", 'tell application "System Events" to shut down'],
+    shutdown: [
+      "osascript",
+      "-e",
+      'tell application "System Events" to shut down',
+    ],
     restart: ["osascript", "-e", 'tell application "System Events" to restart'],
     sleep: ["pmset", "sleepnow"],
     cancel: ["sudo", "killall", "shutdown"],
