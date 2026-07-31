@@ -26,6 +26,7 @@ allowed-tools: Bash(gh api *) Bash(git remote *) Bash(gh issue list *) Bash(gh i
   - 부가 정보(Additional context): 비교 스크린샷 표, 로그 등 보충 자료
 - URL은 설명 문구에 연결
   - 이슈·PR은 제목 미리보기를 위해 직접 삽입
+- 사람이 읽는 비용을 고려해 간결히 작성
 
 # 폼 띄우기
 
