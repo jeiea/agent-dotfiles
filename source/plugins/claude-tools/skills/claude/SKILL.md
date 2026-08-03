@@ -1,6 +1,6 @@
 ---
 name: claude
-description: 코드 작성자, 조율자, 맥락 조사자로 특화된 Claude(클로드) 호출. 도구 사용이 가능하니 사전 조사보다 배경과 맥락을 건네주고 위임.
+description: 프론트엔드 코드 작성, 조율자, 맥락 조사자로 특화된 Claude(클로드) 호출. 도구 사용이 가능하니 사전 조사보다 배경과 맥락을 건네주고 위임.
 allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Read(/tmp/*)
 ---
 
@@ -9,8 +9,8 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Read(/tmp/*)
 
 ## 사용 케이스
 
-- 기존 코드 구조와 일관성 있는 코드 작성 시
-- 여러 에이전트 조율 시
+- 현재 세션에 편향되지 않은 새 관점 필요 시
+- 프론트엔드 시각적 코드 작성 시
 
 ## 사용법
 
@@ -43,7 +43,7 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
 조금이라도 이전 호출과 관련있으면 해당 세션 ID 재사용. 완전히 새 관점이 필요한
 경우만 예외.
 
-`stream-json`은 `--verbose`와 함께 사용하며 JSON Lines로 저장. 최종 `result`
+`stream-json`은 `--verbose`와 함께 사용하며 jsonl로 저장. 최종 `result`
 이벤트에서 세션 ID, 응답, 비용 추출.
 
 ## 로깅
@@ -80,6 +80,6 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
 
 ## 호출 시 판단 항목
 
-1. 서브에이전트가 적합한 작업 범위인지
-2. 병렬화 가능한지
-3. 위험도에 따른 권한, effort 수준
+1. 위험도에 따른 권한, effort 수준
+2. 프롬프트에 역할, 종료 조건이 명확한지
+3. 메인 세션 또는 서브 세션 병렬 진행 가능성
