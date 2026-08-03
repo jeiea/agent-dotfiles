@@ -1,0 +1,28 @@
+{
+  "description": "Load shared SOA memory paths.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "soa memory hook claude",
+            "statusMessage": "Loading shared memory"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "soa memory hook claude",
+            "statusMessage": "Resolving shared memory"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "description": "Load shared SOA memory paths.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "soa memory hook codex",
+            "statusMessage": "Loading shared memory",
+            "additionalContextLimit": 2500
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^apply_patch$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "soa memory hook codex",
+            "statusMessage": "Resolving shared memory",
+            "additionalContextLimit": 2500
+          }
+        ]
+      }
+    ]
+  }
+}
