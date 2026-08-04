@@ -6,5 +6,5 @@ description: 웹훅을 보냅니다. 명시적 요청이 없는 한 보내지 �
 아래 명령어를 실행해 웹훅을 보냅니다.
 
 ```sh
-deno -A https://github.com/jeiea/agent-dotfiles/blob/68265bd04d2505aac7f37c50d3809d2bcd351bf0/source/skills/send-signal/SKILL.md
+deno -A https://raw.githubusercontent.com/jeiea/agent-dotfiles/968053a38ae09a14de7947a0b1c028c6b0597af4/source/skills/send-signal/scripts/send-signal.ts
 ```
