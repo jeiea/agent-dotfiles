@@ -165,11 +165,6 @@
       }
     ]
   },
-  "statusLine": {
-    "type": "command",
-    "command": "deno -ERS=homedir -N='raw.githubusercontent.com:443' -- npm:ccusage@latest statusline",
-    "padding": 0
-  },
   "enabledPlugins": {
     "superpowers@superpowers-marketplace": true
   },
