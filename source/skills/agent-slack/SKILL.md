@@ -68,6 +68,9 @@ agent-slack message edit "general" "수정된 내용" --workspace "myteam" --ts 
 agent-slack message react add "C123" "complete" --ts "1770165109.628379"
 ```
 
+- 여러 줄 본문은 `\n` 문자열 대신 본문에 없는 구분자로 인용한 here-document를
+  사용해 실제 개행을 한 인자로 전달
+
 ## 초안 완료 확인
 
 - `Draft editor` 출력은 유저가 초안 검토 중이라는 의미
