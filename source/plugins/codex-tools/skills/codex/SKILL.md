@@ -14,10 +14,13 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4)
 
 ## 사용법
 
-프롬프트는 항상 `- <<'PROMPT' ... PROMPT` 형식으로 stdin에 전달한다. argv 위치
-인자로 프롬프트를 넘기거나 `-`와 argv를 섞지 말 것 — codex는 stdin과 argv가
-동시에 오면 둘을 병합(`<stdin>` 블록)해 의도치 않은 프롬프트를 만들거나 stdin
-대기로 타임아웃한다.
+프롬프트는 항상 `- <<'PROMPT' ... PROMPT` 형식으로 stdin에 전달. argv 프롬프트
+금지
+
+- stdin·argv 동시 전달 시 병합(`<stdin>` 블록)으로 의도치 않은 프롬프트 생성
+- argv만 전달해도 stdin이 비TTY로 열려 있으면(백그라운드 셸 등) EOF 대기 교착.
+  "Reading additional input from stdin..." 후 무한 대기가 증상. 부득이 argv 사용
+  시 `< /dev/null` 필수
 
 첫 프롬프트에 중첩 Codex의 `claude`, `peer-review`, `flavor-review` 재호출 금지
 명시.
