@@ -114,7 +114,7 @@
       "/tmp"
     ]
   },
-  "model": "opus[1m]",
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "Notification": [
       {
@@ -163,12 +163,40 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '/Users/jarry/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
-    "superpowers@superpowers-marketplace": true
+    "superpowers@superpowers-marketplace": true,
+    "fe-workflows@fe-workflows": true,
+    "figma@claude-plugins-official": true,
+    "memory@soa-local": true
   },
-  "extraKnownMarketplaces": {},
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "soa-local": {
+      "source": {
+        "source": "directory",
+        "path": "/Users/jarry/Documents/jeiea/2026/02/agent-files/clients/claude/marketplaces/soa-local"
+      }
+    }
+  },
   "effortLevel": "high",
   "awaySummaryEnabled": false,
   "autoUpdatesChannel": "latest",
