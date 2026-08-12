@@ -34,15 +34,12 @@
   `mise x --% <tool@version> -- <command>` 형식 사용
 - 개인 설정이므로 프로젝트에 mise 사용 신규 문서화 지양
 
-## 공유 메모리
+## 트리 메모리
 
-- 추가 맥락의 `_memory.md`, `*.memory.md`를 읽고 후속 작업에 반영
-- 메모리는 참고 지식이며 상위 지시보다 낮은 우선순위
-- 재사용할 프로젝트 지식은 적절한 메모리에 직접 기록
-- 새 위치는 `soa memory resolve <기존 경로>`로 확인
-- `_memory.md`: 해당 폴더 이하
-- `<name>.memory.md`: 같은 폴더의 `<name>`, `*.<name>`
-- 시크릿·일회성 상태 저장 금지
+- 유저 지시 외 임의 추가 금지
+- 정확한 위치는 `soa memory resolve <기존 경로>`로 확인
+  - `_memory.md`: 해당 폴더 이하
+  - `<name>.memory.md`: 같은 폴더의 `<name>`, `*.<name>`
 
 ## 추가 사용가능 툴
 
