@@ -16,7 +16,9 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 - `test "${HERDR_ENV:-}" = 1`이면 `herdr --skill` 확인 후 그 지침대로 herdr
   pane/agent에서 중첩 실행
-- 로깅·세션 관리도 herdr에 위임. 이하 절차는 비herdr 환경 기준
+- `herdr agent start ... --` 뒤에 후술 전역 플래그와 `--sandbox`를 동일 기준으로
+  선택해 전달
+- 로깅·세션 관리도 herdr에 위임. 플래그 판단 외 이하 절차는 비herdr 환경 기준
 
 ## 사용법
 

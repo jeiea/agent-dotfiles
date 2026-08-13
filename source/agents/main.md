@@ -10,7 +10,7 @@
   - docker -> 도커, sentry -> 센트리, vercel -> 버셀, github actions -> 깃헙
     액션 등
 - 스크래치 파일: scratch.local.md
-- 취향이므로 저장소에 내용 중복 지양
+- 취향이므로 저장소 컨벤션과 별개
 
 ## 상황별 반드시 확인할 스킬
 
@@ -32,18 +32,9 @@
   형식으로 실행
 - PowerShell에서 `mise` 함수 래퍼가 `--`를 소비하면
   `mise x --% <tool@version> -- <command>` 형식 사용
-- 개인 설정이므로 프로젝트에 mise 사용 신규 문서화 지양
-
-## 트리 메모리
-
-- 유저 지시 외 임의 추가 금지
-- 세션 시작 또는 특정 파일 접근 시 자동 주입 됨
-- 정확한 위치는 `soa memory resolve <기존 경로>`로 확인
-  - `_memory.md`: 해당 폴더 이하
-  - `<name>.memory.md`: 같은 폴더의 `<name>`, `*.<name>`
 
 ## 추가 사용가능 툴
 
-bat, fd, rg(ripgrep), gh, sd, deno
+bat, fd, rg(ripgrep), gh, sd, deno, mise
 
 </user-preferences>
