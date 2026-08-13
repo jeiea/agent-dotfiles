@@ -63,6 +63,134 @@ vim_mode_default = false
 [clients.codex.config.windows]
 sandbox = "elevated"
 
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-analytics-dashboard"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-business-review"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-design-report"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-experiment-analysis"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-financial-budget"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-investment-committee-memo"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-market-trends-report"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-minimal-letterhead"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-legal-memorandum"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-operating-calendar"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-operating-review"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-project-kickoff"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-project-tracker"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-sales-pipeline"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-simple-dark-mode"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-simple-light-mode"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-strategy-memorandum"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-system-design"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-team-alignment"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-templates:artifact-template-three-statement-forecast"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-code-connect"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-create-new-file"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-design-to-code"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-generate-design"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-generate-diagram"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-generate-library"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-implement-motion"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-swiftui"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-use"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-use-figjam"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-use-motion"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-use-slides"
+enabled = false
+
 [clients.pi]
 path = "clients/pi"
 plugins = ["claude-tools", "remote-skills"]
