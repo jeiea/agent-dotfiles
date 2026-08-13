@@ -6,6 +6,27 @@ path = "clients/claude"
 plugins = ["codex-tools", "memory", "remote-skills"]
 main_agent = "main"
 
+[clients.claude.config]
+cleanupPeriodDays = 99999
+awaySummaryEnabled = false
+autoUpdatesChannel = "latest"
+tui = "fullscreen"
+skipDangerousModePermissionPrompt = true
+theme = "dark"
+editorMode = "vim"
+verbose = true
+switchModelsOnFlag = false
+agentPushNotifEnabled = true
+skipAutoPermissionPrompt = true
+
+[clients.claude.config.env]
+NO_COLOR = "1"
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
+
+[clients.claude.config.attribution]
+commit = ""
+pr = ""
+
 [clients.opencode]
 path = "clients/opencode"
 plugins = ["codex-tools", "remote-skills"]
