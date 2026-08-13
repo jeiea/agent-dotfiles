@@ -27,7 +27,7 @@ ntn pages create --parent data-source:<data-source-id> < page.md
 # 데이터 소스 작업
 
 ```bash
-ntn datasources resolve <database-id-or-url> --json
+ntn datasources resolve <database-id> --json
 ntn api v1/data_sources/<data-source-id>
 ntn datasources query <data-source-id> --limit 20
 ntn datasources query <data-source-id> \
