@@ -121,7 +121,7 @@ path = "/^(?!(?:[A-Za-z]:)?[\\\\/]*$).+$/"
 [[rules]]
 tool = "Skill"
 [rules.match]
-skill = "/^(zettelkasten|codex|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments)$/"
+skill = "/^(zettelkasten|(codex-tools:)?codex|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments)$/"
 
 [[rules]]
 tool = "SlashCommand"

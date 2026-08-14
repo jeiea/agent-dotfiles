@@ -16,7 +16,7 @@ description: 다른 모델과 동시에 같은 요청을 독립 수행한 뒤 �
 # 작업자 선택
 
 - 현재 세션이 Codex면 `claude` 스킬 우선
-- 현재 세션이 Claude면 `codex` 스킬 우선
+- 현재 세션이 Claude면 `codex` 스킬(플러그인 표기 `codex-tools:codex`) 우선
 - 다른 모델 호출이 어렵다면 스킬 사용 포기
 - 같은 모델 재귀 호출, 같은 스킬 재호출은 피함
 

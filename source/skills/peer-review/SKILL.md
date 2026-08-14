@@ -5,7 +5,8 @@ description: 산출물을 다른 모델로 검토 및 개선. 복잡한 추가/�
 
 # 검토자 선택
 
-- 현재 세션이 Codex면 `claude`, Claude면 `codex` 스킬 우선
+- 현재 세션이 Codex면 `claude`, Claude면 `codex` 스킬(플러그인 표기
+  `codex-tools:codex`) 우선
 - 다른 모델 호출이 어렵다면 서브에이전트 사용 허용
 - 가장 강력한 모델 선호
 
