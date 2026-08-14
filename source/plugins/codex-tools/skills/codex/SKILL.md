@@ -1,7 +1,7 @@
 ---
 name: codex
 description: 계획자, 검토자, 디버깅 전문가인 코덱스(Codex)를 호출. 도구 사용이 가능하니 사전 조사보다 배경과 맥락을 건네주고 위임.
-allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *)
+allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *) Skill(herdr)
 ---
 
 작업 디렉토리의 AGENTS.md 맥락을 공유하는 중첩 Codex 프로세스(서브에이전트) 실행
@@ -14,8 +14,8 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 ## herdr 환경
 
-- `test "${HERDR_ENV:-}" = 1`이면 `herdr --skill` 확인 후 그 지침대로 herdr
-  pane/agent에서 중첩 실행
+- `test "${HERDR_ENV:-}" = 1`이면 `herdr` 스킬 지침대로 herdr pane/agent에서
+  중첩 실행
 - `herdr agent start ... --` 뒤에 후술 전역 플래그와 `--sandbox`를 동일 기준으로
   선택해 전달
 - 로깅·세션 관리도 herdr에 위임. 플래그 판단 외 이하 절차는 비herdr 환경 기준

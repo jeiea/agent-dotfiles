@@ -1,7 +1,7 @@
 ---
 name: claude
 description: 프론트엔드 코드 작성, 조율자, 맥락 조사자로 특화된 Claude(클로드) 호출. 도구 사용이 가능하니 사전 조사보다 배경과 맥락을 건네주고 위임.
-allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *) Read(/tmp/*)
+allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *) Skill(herdr) Read(/tmp/*)
 ---
 
 작업 디렉토리의 CLAUDE.md 맥락을 공유하는 중첩 Claude Code
@@ -14,8 +14,8 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 
 ## herdr 환경
 
-- `test "${HERDR_ENV:-}" = 1`이면 `herdr --skill` 확인 후 그 지침대로 herdr
-  pane/agent에서 중첩 실행
+- `test "${HERDR_ENV:-}" = 1`이면 `herdr` 스킬 지침대로 herdr pane/agent에서
+  중첩 실행
 - `herdr agent start ... --` 뒤에도 후술 모델·effort·권한·도구·경로 플래그를
   동일 기준으로 선택해 전달
 - 로깅·세션 관리도 herdr에 위임. 플래그 판단 외 이하 절차는 비herdr 환경 기준

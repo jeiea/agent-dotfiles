@@ -17,6 +17,7 @@
 - 코드 작성 시: code-flavor
 - 테스트 작성 시: tdd-flavor
 - 커밋 시: commit-flavor
+- 서브에이전트 호출 시: herdr
 
 가령 테스트 코드 작성 시 code-flavor, tdd-flavor 확인
 
