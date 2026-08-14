@@ -31,13 +31,13 @@ openssl rand -hex 4
 # → e.g. a1b2c3d4
 
 # 2. 첫 실행 (리터럴 경로)
-claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
+claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex),Skill(codex-tools:codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
 
 # 3. 세션 ID, 응답, 모델별 USD 비용 추출
 jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsage // {}) | with_entries(.value = (.value.costUSD // 0)))} | @json)' /tmp/a1b2c3d4.jsonl
 
 # 4. 세션 재개 + stream-json (리터럴 경로 + heredoc)
-claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex)' --resume sess_abc123 - <<'EOF' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
+claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex),Skill(codex-tools:codex)' --resume sess_abc123 - <<'EOF' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
 Reflect follow-ups.
 Append suggestions.
 EOF
@@ -82,7 +82,8 @@ Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다�
   - `bypassPermissions`: 보호된 디렉토리 쓰기를 제외한 모든 작업
   - `default`: 파일 읽기
 - `'--allowedTools=Bash(git diff)'`: 허용 도구 목록
-- `'--disallowedTools=Skill(codex)'`: Codex에서 재귀 호출 방지 차원 항상 포함
+- `'--disallowedTools=Skill(codex),Skill(codex-tools:codex)'`: Codex에서 재귀
+  호출 방지 차원 항상 포함
 - `--add-dir <path>`: 추가 디렉토리 접근 허용
 - `--resume <session_id>`: 세션 재개
 
