@@ -19,6 +19,8 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 ### 프롬프트 내용
 
+- `\n` 이스케이프 금지. 셸 인자에서 리터럴 `\n`으로 전달되므로 여러 줄은 실제
+  개행(heredoc, quoted 개행)으로 작성
 - 역할, 종료 조건 명확히 기술
 - 종속 세션인 경우 스킬 재귀 사용, 서브에이전트 무한 포크 방지를 위해 금지 스킬
   명시(예: claude)

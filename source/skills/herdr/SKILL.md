@@ -39,9 +39,13 @@ allowed-tools: Bash(herdr *)
 1. 위임·후속 요청
 
    ```sh
-   herdr agent prompt <target> "<지시>" --wait --timeout 300000
+   herdr agent prompt <target> "$(cat <<'EOF'
+   <지시>
+   EOF
+   )" --wait --timeout 300000
    ```
 
+   - 지시에 `\n` 이스케이프 금지(리터럴 전달)
    - 새 작업은 자기완결적 지시, 기존 맥락은 변경점·종료 조건 중심
    - `--wait`: idle|done|blocked 정착까지 대기
    - 병렬 위임: 위 명령을 pane별 백그라운드 셸로 동시 실행 후 회수

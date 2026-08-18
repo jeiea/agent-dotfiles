@@ -19,6 +19,8 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 
 ### 프롬프트 내용
 
+- `\n` 이스케이프 금지. 셸 인자에서 리터럴 `\n`으로 전달되므로 여러 줄은 실제
+  개행(heredoc, quoted 개행)으로 작성
 - 역할, 종료 조건 명확히 기술
 - 가용 도구 차이가 있을 수 있어 도구에서만 얻을 수 있는 맥락은 최대한 전달. 가령
   Claude 쪽 권한 또는 도구 제한으로 테스트를 실행할 수 없다면 테스트 직접 실행
