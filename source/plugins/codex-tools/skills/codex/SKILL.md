@@ -6,41 +6,75 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 작업 디렉토리의 AGENTS.md 맥락을 공유하는 중첩 Codex 프로세스(서브에이전트) 실행
 
+`test "${HERDR_ENV:-}" = 1`이면 herdr 환경, 아니면 비herdr 환경. 공통 항목은 둘
+다 적용, 비herdr 절차는 herdr 환경에서 미사용.
+
 ## 사용 케이스
 
 - 심화 추론이 필요한 계획 또는 아키텍처 결정
 - 다양한 가설 탐색이 필요한 디버깅
 - 현재 세션에 편향되지 않은 새 관점 필요 시
 
+## 공통
+
+### 프롬프트 내용
+
+- 역할, 종료 조건 명확히 기술
+- 종속 세션인 경우 스킬 재귀 사용, 서브에이전트 무한 포크 방지를 위해 금지 스킬
+  명시(예: claude)
+- 가용 도구 차이가 있을 수 있어 도구에서만 얻을 수 있는 맥락은 최대한 전달. 가령
+  `--sandbox read-only`에선 테스트를 실행할 수 없으니 `workspace-write`를 쓰거나
+  테스트 직접 실행 결과 첨부
+
+### 전역 플래그 (exec 앞에 삽입)
+
+- `--search`: 웹 검색 허용. 이유가 없는 한 허용합니다. (기본: `false`)
+- `--config model_reasoning_effort=<level>`: 계획 시 `xhigh`, 이외 `high`
+- `--add-dir <path>`: 추가 디렉토리 허용
+- `--cd <path>`: 작업 디렉토리 설정
+
+### exec 플래그 (exec 뒤에 삽입)
+
+- `--sandbox`: `read-only` | `workspace-write` | `danger-full-access`
+  - 도구 사용을 허용하지만 수정을 의도하지 않는 경우 `workspace-write`를
+    사용하고 이 요청에 한해 수정하지 말라는 지시 강조.
+- `--skip-git-repo-check`: Git 저장소 외부에서 코덱스 실행 허용
+
+### 호출 시 판단 항목
+
+1. 위험도에 따른 권한, effort 수준
+2. 메인 세션 또는 서브 세션 병렬 진행 가능성
+
 ## herdr 환경
 
-- `test "${HERDR_ENV:-}" = 1`이면 `herdr` 스킬 지침대로 herdr pane/agent에서
-  중첩 실행
-- `herdr agent start ... --` 뒤에 후술 전역 플래그와 `--sandbox`를 동일 기준으로
+- `herdr` 스킬 지침대로 herdr pane/agent에서 중첩 실행
+- `herdr agent start ... --` 뒤에 위 전역 플래그와 `--sandbox`를 동일 기준으로
   선택해 전달
-- 로깅·세션 관리도 herdr에 위임. 플래그 판단 외 이하 절차는 비herdr 환경 기준
+  - 권한 요청 방지를 위해 `workspace-write` 대신 `danger-full-access` 사용
+- 프롬프트 전달, 로깅, 대기, 결과 회수, 세션 관리는 herdr에 위임
 
-## 사용법
+## 비herdr 절차
 
-프롬프트는 항상 `- <<'PROMPT' ... PROMPT` 형식으로 stdin에 전달. argv 프롬프트
-금지
+- 프롬프트는 항상 `- <<'PROMPT' ... PROMPT` 형식으로 stdin에 전달. argv 프롬프트
+  금지
+  - stdin·argv 동시 전달 시 병합(`<stdin>` 블록)으로 의도치 않은 프롬프트 생성
+  - argv만 전달해도 stdin이 비TTY로 열려 있으면(백그라운드 셸 등) EOF 대기 교착.
+    "Reading additional input from stdin..." 후 무한 대기가 증상. 부득이 argv
+    사용 시 `< /dev/null` 필수
+- 조금이라도 이전 호출과 관련이 있으면 해당 세션 ID 재사용. 완전히 새 관점이
+  필요한 경우만 예외
+- 유저 입력 세션 ID가 유효한 UUID가 아니라면 유저에게 먼저 확인
+- 비대화형 모드에서 `codex exec`는 승인 미요청. 기본값은 `read-only` 모드(파일
+  편집, 네트워크 접근 불가)
 
-- stdin·argv 동시 전달 시 병합(`<stdin>` 블록)으로 의도치 않은 프롬프트 생성
-- argv만 전달해도 stdin이 비TTY로 열려 있으면(백그라운드 셸 등) EOF 대기 교착.
-  "Reading additional input from stdin..." 후 무한 대기가 증상. 부득이 argv 사용
-  시 `< /dev/null` 필수
-
-첫 프롬프트에 중첩 Codex의 `claude`, `peer-review`, `flavor-review` 재호출 금지
-명시.
-
-```shell
+```sh
 # 1. 로그 파일명 생성
 openssl rand -hex 4
 # → e.g. a1b2c3d4
 
 # 2. 첫 실행
 codex --search --config model_reasoning_effort=xhigh exec --sandbox read-only - <<'PROMPT' 2>>/tmp/a1b2c3d4.log
-claude·peer-review·flavor-review 재호출 금지.
+claude 재호출 금지.
 작업 목록 및 계획을 알려주세요
 PROMPT
 
@@ -55,45 +89,13 @@ A 태스크를 완료했습니다.
 EOF
 ```
 
-가용 도구 차이가 있을 수 있어 도구에서만 얻을 수 있는 맥락은 최대한 전달. 가령
-`--sandbox read-only`에선 테스트를 실행할 수 없으니 `workspace-write`를 쓰거나
-테스트 직접 실행 결과 첨부.
-
-조금이라도 이전 호출과 관련이 있으면 해당 세션 ID를 재사용. 완전히 새 관점이
-필요한 경우만 예외.
-
-유저 입력 세션 ID가 유효한 UUID가 아니라면 유저에게 먼저 확인.
-
-비대화형 모드에서 `codex exec`는 승인을 요청하지 않습니다. 기본값은 `read-only`
-모드(파일 편집, 네트워크 접근 불가)입니다.
-
-## 로깅
+### 로깅
 
 - 실행 전 `openssl rand -hex 4`로 고유 로그 파일명 생성
 - stderr 캡처용으로 `2>>/tmp/${filename}.log` 추가
 - 실패, 예상치 못한 동작, 또는 명시적 요청 시 로그 파일 확인
 - 로그 중 `session id:`를 포함한 라인에서 세션 ID 확인 가능
 
-## 타임아웃
+### 타임아웃
 
-별도 요청이 없다면 최소 20분 설정
-
-## 전역 플래그 (exec 앞에 삽입)
-
-- `--search`: 웹 검색 허용. 이유가 없는 한 허용합니다. (기본: `false`)
-- `--config model_reasoning_effort=<level>`: 계획 시 `xhigh`, 이외 `high`
-- `--add-dir <path>`: 추가 디렉토리 허용
-- `--cd <path>`: 작업 디렉토리 설정
-
-## exec 플래그 (exec 뒤에 삽입)
-
-- `--sandbox`: `read-only` | `workspace-write` | `danger-full-access`
-  - 도구 사용을 허용하지만 수정을 의도하지 않는 경우 `workspace-write`를
-    사용하고 이 요청에 한해 수정하지 말라는 지시 강조.
-- `--skip-git-repo-check`: Git 저장소 외부에서 코덱스 실행 허용
-
-## 호출 시 판단 항목
-
-1. 위험도에 따른 권한, effort 수준
-2. 프롬프트에 역할, 종료 조건이 명확한지
-3. 메인 세션 또는 서브 세션 병렬 진행 가능성
+- 별도 요청이 없다면 최소 20분 설정
