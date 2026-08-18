@@ -19,6 +19,7 @@ allowed-tools: Bash(herdr *)
    - `cwd`는 대상 선택 단서로 참고
    - 이름이 중복되면 고유 `pane_id`를 `<target>`으로 사용
    - 상태·화면 확인: `herdr agent get <target>`
+   - 클로드·코덱스 고유 세션 ID는 `pane_id`가 아닌 `agent_session.value`
 
 2. 요청 없거나 재사용 대상 없으면 pane 분할·새 에이전트 시작
 
