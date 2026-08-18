@@ -32,13 +32,11 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
   재시도
 - `--effort <level>`: `xhigh`(계획), `high`(구현, 리뷰), `medium`
 - `--permission-mode <mode>`
-  - `acceptEdits`: 보호된 디렉토리를 제외한 파일 읽기 및 편집 (별도 지시 없을 시
-    기본)
-  - `bypassPermissions`: 보호된 디렉토리 쓰기를 제외한 모든 작업
-  - `default`: 파일 읽기
+  - `dontAsk`: 읽기만 필요 시
+  - `bypassPermissions`: 쓰기 필요 시
 - `'--allowedTools=Bash(git diff)'`: 허용 도구 목록
-- `'--disallowedTools=Skill(codex-tools:codex)'`: 종속 세션인 경우 스킬 재귀
-  사용, 서브에이전트 무한 포크 방지 차원 포함
+- `'--disallowedTools=Skill(codex-tools:codex)'`: 종속 세션, 즉 결과를 기다리는
+  세션인 경우 스킬 재귀 사용, 서브에이전트 무한 포크 방지를 위해 포함
 - `--add-dir <path>`: 추가 디렉토리 접근 허용
 - `--resume <session_id>`: 세션 재개
 
