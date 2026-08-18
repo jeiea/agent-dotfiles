@@ -1,12 +1,8 @@
 ---
 name: herdr
-description: 코드 탐색이 아닌 작업 위임 시 HERDR_ENV=1이면 herdr pane으로 호출
+description: 코드 탐색이 아닌 작업 위임 시 `echo "herdr=${HERDR_ENV:-off}"` 출력이 herdr=1이면 herdr pane으로 호출
 allowed-tools: Bash(herdr *)
 ---
-
-# 전제
-
-- `test "${HERDR_ENV:-}" = 1` 실패 시 중단, 내장 서브에이전트 사용
 
 # 대상 선택
 
