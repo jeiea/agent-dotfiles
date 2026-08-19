@@ -32,7 +32,9 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
   재시도
 - `--effort <level>`: `xhigh`(계획), `high`(구현, 리뷰), `medium`
 - `--permission-mode <mode>`
-  - `dontAsk`: 읽기만 필요 시
+  - `dontAsk`: 읽기만 필요 시. Read·Glob·Grep·읽기 전용 Bash 기본 허용, 그 외
+    프롬프트 대상 자동 거부. 웹 조사 시
+    `'--allowedTools=WebSearch,WebFetch(domain:*)'` 추가
   - `bypassPermissions`: 쓰기 필요 시
 - `'--allowedTools=Bash(git diff)'`: 허용 도구 목록
 - `'--disallowedTools=Skill(codex-tools:codex)'`: 종속 세션, 즉 결과를 기다리는
