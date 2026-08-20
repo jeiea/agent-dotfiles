@@ -30,6 +30,8 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 ### 전역 플래그 (exec 앞에 삽입)
 
+- `--approve-for-me`: 항상 추가. 승인 요청을 자동 검토하고 기본 샌드박스를
+  `workspace-write`로 설정
 - `--search`: 웹 검색 허용. 이유가 없는 한 허용합니다. (기본: `false`)
 - `--config model_reasoning_effort=<level>`: 계획 시 `xhigh`, 이외 `high`
 - `--add-dir <path>`: 추가 디렉토리 허용
@@ -37,7 +39,7 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 ### exec 플래그 (exec 뒤에 삽입)
 
-- `--sandbox`: `read-only` | `workspace-write` | `danger-full-access`
+- `--sandbox`: `read-only` | `workspace-write`
   - 도구 사용을 허용하지만 수정을 의도하지 않는 경우 `workspace-write`를
     사용하고 이 요청에 한해 수정하지 말라는 지시 강조.
 - `--skip-git-repo-check`: Git 저장소 외부에서 코덱스 실행 허용
@@ -50,9 +52,9 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 ## herdr 환경
 
 - `herdr` 스킬 지침대로 herdr pane/agent에서 중첩 실행
-- `herdr agent start ... --` 뒤에 위 전역 플래그와 `--sandbox`를 동일 기준으로
-  선택해 전달
-  - 권한 요청 방지를 위해 `workspace-write` 대신 `danger-full-access` 사용
+- `herdr agent start ... --` 뒤에 위 전역 플래그 전달
+  - `--approve-for-me`가 `workspace-write`를 설정하므로 충돌하는 `--sandbox`
+    생략
 - 프롬프트 전달, 로깅, 대기, 결과 회수, 세션 관리는 herdr에 위임
 
 ## 비herdr 절차
@@ -66,8 +68,7 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 - 조금이라도 이전 호출과 관련이 있으면 해당 세션 ID 재사용. 완전히 새 관점이
   필요한 경우만 예외
 - 유저 입력 세션 ID가 유효한 UUID가 아니라면 유저에게 먼저 확인
-- 비대화형 모드에서 `codex exec`는 승인 미요청. 기본값은 `read-only` 모드(파일
-  편집, 네트워크 접근 불가)
+- `--approve-for-me`는 전역에, `--sandbox`는 `exec` 뒤에 배치해 플래그 충돌 방지
 
 ```sh
 # 1. 로그 파일명 생성
@@ -75,7 +76,7 @@ openssl rand -hex 4
 # → e.g. a1b2c3d4
 
 # 2. 첫 실행
-codex --search --config model_reasoning_effort=xhigh exec --sandbox read-only - <<'PROMPT' 2>>/tmp/a1b2c3d4.log
+codex --approve-for-me --search --config model_reasoning_effort=xhigh exec --sandbox read-only - <<'PROMPT' 2>>/tmp/a1b2c3d4.log
 claude 재호출 금지.
 작업 목록 및 계획을 알려주세요
 PROMPT
@@ -85,7 +86,7 @@ grep 'session id: ' /tmp/a1b2c3d4.log | cut -d' ' -f3
 # → e.g. e2d892ab-46ad-42d1-83ca-f5727d969c38
 
 # 4. 세션 재개
-codex --search --config model_reasoning_effort=xhigh exec --sandbox read-only resume e2d892ab-46ad-42d1-83ca-f5727d969c38 - <<'EOF' 2>>/tmp/a1b2c3d4.log
+codex --approve-for-me --search --config model_reasoning_effort=xhigh exec --sandbox read-only resume e2d892ab-46ad-42d1-83ca-f5727d969c38 - <<'EOF' 2>>/tmp/a1b2c3d4.log
 A 태스크를 완료했습니다.
 리뷰해주세요.
 EOF
