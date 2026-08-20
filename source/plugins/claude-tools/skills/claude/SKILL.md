@@ -40,6 +40,9 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 - `'--disallowedTools=Skill(codex-tools:codex)'`: 종속 세션, 즉 결과를 기다리는
   세션인 경우 스킬 재귀 사용, 서브에이전트 무한 포크 방지를 위해 포함
 - `--add-dir <path>`: 추가 디렉토리 접근 허용
+- `-n, --name <name>`: 세션 표시 이름. `<원래 세션 ID> <위임 목적>` 형식으로
+  항상 지정. 원래 세션 ID는 호출자 자신의 세션 ID로 `$CODEX_THREAD_ID` 또는
+  claude의 경우 스크래치패드 경로의 UUID
 - `--resume <session_id>`: 세션 재개
 
 ### 호출 시 판단 항목
@@ -50,8 +53,8 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 ## herdr 환경
 
 - `herdr` 스킬 지침대로 herdr pane/agent에서 중첩 실행
-- `herdr agent start ... --` 뒤에 위 모델·effort·권한·도구·경로 플래그를 동일
-  기준으로 선택해 전달
+- `herdr agent start ... --` 뒤에 위 모델·effort·권한·도구·경로·이름 플래그를
+  동일 기준으로 선택해 전달
 - 프롬프트 전달, 로깅, 대기, 결과 회수, 세션 관리는 herdr에 위임
 
 ## 비herdr 절차
@@ -69,7 +72,7 @@ openssl rand -hex 4
 # → e.g. a1b2c3d4
 
 # 2. 첫 실행 (리터럴 경로)
-claude -p --model best --verbose --output-format stream-json --effort high '--disallowedTools=Skill(codex-tools:codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
+claude -p --model best --verbose --output-format stream-json --effort high --name "fafc35d3-aaed-4606-80f0-738068e0c3c0 implement-scratch" '--disallowedTools=Skill(codex-tools:codex)' "Implement scratch" >/tmp/a1b2c3d4.jsonl 2>/tmp/a1b2c3d4.log
 
 # 3. 세션 ID, 응답, 모델별 USD 비용 추출
 jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsage // {}) | with_entries(.value = (.value.costUSD // 0)))} | @json)' /tmp/a1b2c3d4.jsonl

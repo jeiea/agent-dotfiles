@@ -55,6 +55,11 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 - `herdr agent start ... --` 뒤에 위 전역 플래그 전달
   - `--approve-for-me`가 `workspace-write`를 설정하므로 충돌하는 `--sandbox`
     생략
+- 시작 직후 `/rename <원래 세션 ID> <위임 목적>` 형식으로 세션 명명:
+  `herdr agent prompt <target> '/rename <원래 세션 ID> <이름>'`
+  - 원래 세션 ID: 호출자 자신의 세션 ID. `$CODEX_THREAD_ID` 또는 claude의 경우
+    스크래치패드 경로의 UUID
+  - `--wait` 금지. 즉시 처리라 상태 변화가 없어 stalled 오류만 발생
 - 프롬프트 전달, 로깅, 대기, 결과 회수, 세션 관리는 herdr에 위임
 
 ## 비herdr 절차
