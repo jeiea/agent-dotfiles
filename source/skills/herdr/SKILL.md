@@ -54,7 +54,8 @@ allowed-tools: Bash(herdr *)
    - blocked: 텍스트 질문엔 prompt, UI 선택지엔
      `herdr agent send-keys <target> esc` 등 키 입력 후
      `herdr agent wait <target> --until idle --until done --timeout 300000`
-   - stalled: 추가 prompt로 재시도
+   - stalled: 반복 read 간 화면 변화 없음일 때만. 추가 prompt로 재시도
+     - 장시간 소요, 다량 파일 읽기는 정상 working. 완료까지 재대기
    - timeout에 working이면 `herdr agent wait <target> --timeout 300000` 재대기
    - unknown: 화면 기준 작업 중이면 재대기, 응답 완료면 결과 회수
    - `agent_not_running`·timeout·unknown만으로 재위임·실패 판정 금지
@@ -74,5 +75,6 @@ herdr agent read <target> --source recent-unwrapped --lines 120
 
 # 금지
 
+- working 대상에 독촉·조기 답변 요구 prompt
 - 유저 focus 이동(`--no-focus` 유지)
 - 직접 만들지 않은 pane·tab·workspace 조작·종료
