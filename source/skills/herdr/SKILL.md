@@ -4,77 +4,36 @@ description: 코드 탐색이 아닌 작업 위임 시 `echo "herdr=${HERDR_ENV:
 allowed-tools: Bash(herdr *)
 ---
 
+호출 여부는 `description`을 따르고, 명령 사용 전 `herdr --skill`을 읽어 아래
+로컬 정책과 함께 적용
+
 # 대상 선택
 
-1. 유저가 기존 에이전트 사용 요청 시 조회
+유저가 기존 에이전트를 지정하면 `herdr agent list`로 조회:
 
-   ```sh
-   herdr agent list
-   ```
+- `cwd`를 대상 선택 단서로 사용
+- 클로드·코덱스 세션 ID는 `pane_id` 아닌 `agent_session.value`
 
-   - `cwd`는 대상 선택 단서로 참고
-   - 이름이 중복되면 고유 `pane_id`를 `<target>`으로 사용
-   - 상태·화면 확인: `herdr agent get <target>`
-   - 클로드·코덱스 고유 세션 ID는 `pane_id`가 아닌 `agent_session.value`
+# 프롬프트
 
-2. 요청 없거나 재사용 대상 없으면 pane 분할·새 에이전트 시작
+- `\n` 이스케이프 대신 실제 개행 사용
+- 새 작업은 자기완결적 지시, 후속 작업은 변경점·종료 조건 중심
+- 병렬 위임은 pane별 백그라운드 셸에서 동시 실행 후 회수
+- `agent prompt --wait` 뒤 별도 `agent wait` 금지. 전환 전 idle에 즉시 반환 가능
 
-   - 지원 kind: `herdr agent` 출력
-   - `herdr pane layout --current`의 `$HERDR_PANE_ID` rect 기준 가로 여유면
-     right, 그 외 down
+# 상태 처리
 
-   ```sh
-   herdr pane split --current --direction right --cwd "$PWD" --no-focus
-   herdr agent start <name> --kind <kind> --pane <pane_id> -- <agent-args...>
-   ```
+`blocked`, `stalled`, `timeout`, `unknown`이면 `agent get`과 `agent read`로 확인
+후 해소까지 반복:
 
-   - 새 pane ID: split 응답 `.result.pane.pane_id`
-   - 이름: `[a-z][a-z0-9_-]{0,31}`, live 중 유일
-
-# 소통
-
-1. 위임·후속 요청
-
-   ```sh
-   herdr agent prompt <target> "$(cat <<'EOF'
-   <지시>
-   EOF
-   )" --wait --timeout 300000
-   ```
-
-   - 지시에 `\n` 이스케이프 금지(리터럴 전달)
-   - 새 작업은 자기완결적 지시, 기존 맥락은 변경점·종료 조건 중심
-   - `--wait`: idle|done|blocked 정착까지 대기
-   - 병렬 위임: 위 명령을 pane별 백그라운드 셸로 동시 실행 후 회수
-   - prompt 뒤 별도 `agent wait` 금지. 전환 전 idle에 즉시 반환 가능
-
-2. blocked·stalled·timeout·unknown 시 해소까지 반복
-
-   - `herdr agent get <target>`과 아래 결과 회수로 판정
-   - blocked: 텍스트 질문엔 prompt, UI 선택지엔
-     `herdr agent send-keys <target> esc` 등 키 입력 후
-     `herdr agent wait <target> --until idle --until done --timeout 300000`
-   - stalled: 반복 read 간 화면 변화 없음일 때만. 추가 prompt로 재시도
-     - 장시간 소요, 다량 파일 읽기는 정상 working. 완료까지 재대기
-   - timeout에 working이면 `herdr agent wait <target> --timeout 300000` 재대기
-   - unknown: 화면 기준 작업 중이면 재대기, 응답 완료면 결과 회수
-   - `agent_not_running`·timeout·unknown만으로 재위임·실패 판정 금지
-
-# 결과 회수
-
-```sh
-herdr agent read <target> --source recent-unwrapped --lines 120
-```
-
-- 부족하면 `--lines` 증가
+- `blocked`: 텍스트 질문은 prompt, UI 선택지는 `agent send-keys` 후 wait
+- `stalled`: 반복 read에서 화면 변화 없을 때만 추가 prompt. 장시간 작업은 재대기
+- `timeout`: working이면 재대기
+- `unknown`: 화면상 작업 중이면 재대기, 응답 완료면 회수
+- `agent_not_running`, `timeout`, `unknown`만으로 재위임·실패 판정 금지
 
 # 정리
 
-- 직접 만든 pane: 화면에서 완료 확인 후 `herdr pane close <pane_id>`
-- 기존 에이전트 pane 유지
-
-# 금지
-
-- working 대상에 독촉·조기 답변 요구 prompt
-- 유저 focus 이동(`--no-focus` 유지)
-- 직접 만들지 않은 pane·tab·workspace 조작·종료
+- 직접 만든 pane은 완료 확인 후 닫고, 기존 pane은 유지
+- working 대상에 독촉·조기 답변 요구 금지
+- 직접 만들지 않은 pane·tab·workspace 조작·종료 금지
