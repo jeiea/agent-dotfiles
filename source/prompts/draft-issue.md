@@ -6,19 +6,20 @@ allowed-tools: Bash(gh api *) Bash(git remote *) Bash(gh issue list *) Bash(gh i
 
 # 사전 조사
 
-- 닫힌 이슈를 포함해 중복 이슈 검색
+- 닫힌 걸 포함해 중복 이슈, 논의(Discussion) 검색
   - 있다면 먼저 제시하고 진행 여부 확인
   - 이미 확인해 없을 것 같다면 생략
 
 # 이슈 초안 작성
 
 - 기존 이슈의 언어·제목 관례 사용. 없으면 README 언어 사용
-- .github/ISSUE_TEMPLATE 안 가장 적절한 템플릿 선택, 없으면 아래 섹션을 `##`으로
-  사용
+- .github/ISSUE_TEMPLATE 또는 .github/DISCUSSION_TEMPLATE 안 가장 적절한 템플릿
+  선택, 없으면 아래 섹션을 `##`으로 사용
   - 템플릿은 본문 형식에 반영
   - 라벨이 있는 YAML 템플릿을 고른 경우 라벨 추가를 위해 다음 URL을 열거나 제공
     후 폼 입력 내용 제시
     - `https://github.com/<owner>/<repo>/issues/new?template=<파일명>&title=<URL 인코딩 제목>`
+    - `https://github.com/<owner>/<repo>/discussions/new?category=<카테고리>`
     - 유저가 생성 완료 후 최종 마크다운 형태로 수정
 - 섹션: 아래 내용을 템플릿 섹션에 대응하고, 대응할 곳 없는 섹션은 추가
   - 배경(Background): 변경 동기, 변경해야하는 이유, 이야기의 시작 등
