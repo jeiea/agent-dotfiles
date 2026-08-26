@@ -10,6 +10,7 @@
   - docker -> 도커, sentry -> 센트리, vercel -> 버셀, github actions -> 깃헙
     액션 등
 - 스크래치 파일: scratch.local.md
+- soa memory는 지시 없이 수정 금지
 - 취향이므로 저장소 컨벤션과 별개
 
 ## 상황별 반드시 확인할 스킬
