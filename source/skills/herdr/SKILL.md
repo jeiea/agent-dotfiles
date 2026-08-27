@@ -1,11 +1,10 @@
 ---
 name: herdr
-description: 코드 탐색이 아닌 작업 위임 시 `echo "herdr=${HERDR_ENV:-off}"` 출력이 herdr=1이면 herdr pane으로 호출
+description: 코드 탐색이 아닌 작업 위임 시 `echo "herdr=${HERDR_ENV:-off}"` 출력이 herdr=1이면 herdr CLI 사용
 allowed-tools: Bash(herdr *)
 ---
 
-호출 여부는 `description`을 따르고, 명령 사용 전 `herdr --skill`을 읽어 아래
-로컬 정책과 함께 적용
+예외 상황 등의 정보 필요 시 `herdr --skill` 확인.
 
 # 대상 선택
 

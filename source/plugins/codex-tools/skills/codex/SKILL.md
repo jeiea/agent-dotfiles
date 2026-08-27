@@ -1,6 +1,6 @@
 ---
 name: codex
-description: 계획자, 검토자, 디버깅 전문가인 코덱스(Codex)를 호출. 도구 사용이 가능하니 사전 조사보다 배경과 맥락을 건네주고 위임. herdr 환경에선 herdr 스킬 의존.
+description: 계획자, 검토자, 디버깅 전문가인 코덱스(Codex) 호출. 도구 사용이 가능하니 사전 조사보다 배경과 맥락을 건네주고 위임. herdr 환경에선 herdr 스킬 의존.
 allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *) Skill(herdr)
 ---
 

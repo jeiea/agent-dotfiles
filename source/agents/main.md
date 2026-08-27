@@ -18,7 +18,8 @@
 - 코드 작성 시: code-flavor
 - 테스트 작성 시: tdd-flavor
 - 커밋 시: commit-flavor
-- 서브에이전트 호출 시: herdr
+- 서브에이전트 호출 시: codex, claude 중 하나. 별도 지시 없으면 현재 세션과
+  동일한 것
 
 가령 테스트 코드 작성 시 code-flavor, tdd-flavor 확인
 
