@@ -12,11 +12,11 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
   - 최초 커밋이라면 `feat: add new feature` 언어와 형식으로 작성
 - conventional commit 관련
   - test: 테스트 관련 부분만 수정해야 함
-  - feat: 새 테스트 케이스를 추가해야 함
-  - refactor: 테스트 코드 변경이 없어야 함
-  - fix: 테스트와 프로덕션 코드를 둘 다 수정함 또는 그 외
-  - chore: 코드 변경이 없어야 함
   - style: 저장소 린트, 스타일 규칙 변경
+  - chore: 산출물 코드 변경이 없어야 함
+  - refactor: 테스트 코드 변경이 없어야 함
+  - feat: 산출물 사용자가 알아야 할 내용이 있어야 함
+  - fix: 테스트와 프로덕션 코드를 둘 다 수정함 또는 그 외
 - 본문에 한해서
   - 제목 언어 사용
   - 섹션이 2개 이상이면 `[배경]`처럼 섹션 제목을 추가해 분리
