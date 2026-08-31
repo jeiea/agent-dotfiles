@@ -19,7 +19,7 @@
 - 테스트 작성 시: tdd-flavor
 - 커밋 시: commit-flavor
 - 검토 시: peer-review 또는 flavor-review
-- 서브에이전트 호출 시: codex, claude 중 현재 세션과 동일한 것
+- 서브에이전트 호출 시: 내장 기능 대신 codex, claude
 
 가령 테스트 코드 작성 시 code-flavor, tdd-flavor 확인
 
