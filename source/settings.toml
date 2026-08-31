@@ -3,7 +3,7 @@ path = "source"
 
 [clients.claude]
 path = "clients/claude"
-plugins = ["codex-tools", "memory", "remote-skills"]
+plugins = ["claude-tools", "codex-tools", "memory", "remote-skills"]
 main_agent = "main"
 
 [clients.claude.config]
@@ -34,7 +34,7 @@ main_agent = "main"
 
 [clients.codex]
 path = "clients/codex"
-plugins = ["claude-tools", "memory", "remote-skills"]
+plugins = ["claude-tools", "codex-tools", "memory", "remote-skills"]
 main_agent = "main"
 
 [clients.codex.config]
