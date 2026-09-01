@@ -8,9 +8,11 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 
 # herdr에서 새로 호출
 
-`test "${HERDR_ENV:-}" = 1`이면 herdr 스킬에 따라 pane 생성 후 실행:
+`test "${HERDR_ENV:-}" = 1`이면 pane 생성 후 실행:
 
 ```sh
+# pane_id: 응답 .result.pane.pane_id (예: w24:pC)
+herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus
 herdr agent start <name> --kind codex --pane <pane_id> -- \
   --approve-for-me --search --config model_reasoning_effort=high
 herdr agent prompt <name> '/rename <호출자 세션 ID> <위임 목적>'
@@ -25,7 +27,8 @@ herdr agent read <name> --source recent-unwrapped --lines 120
   `workspace-write`를 설정하므로 `--sandbox` 생략
 - `/rename` 직후 `--wait` 금지. 상태 변화 전이라 stalled 오류 발생 가능
 - 호출자 세션 ID: `$CODEX_THREAD_ID`, 클로드는 스크래치패드 경로의 UUID
-- pane 선택·생성, 상태 처리, 결과 회수, 정리는 herdr 스킬 적용
+- `--direction` 필수. 기본 `down`, 유저 지정 시 따름
+- 상태 처리, 결과 회수, 정리는 herdr 스킬 적용
 
 # 비herdr에서 새로 호출
 
