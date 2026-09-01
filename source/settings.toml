@@ -18,10 +18,10 @@ verbose = true
 switchModelsOnFlag = false
 agentPushNotifEnabled = true
 skipAutoPermissionPrompt = true
+remoteControlAtStartup = false
 
 [clients.claude.config.env]
 NO_COLOR = "1"
-CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
 
 [clients.claude.config.attribution]
 commit = ""
