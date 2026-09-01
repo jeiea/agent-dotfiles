@@ -16,6 +16,7 @@ patterns = [
   "/^agent-slack message (list|get|draft)( .*)?$/",
   ":",
   "awk *",
+  "/^aws \\S+ (describe|list)-\\S+( .*)?$/",
   "cat *",
   "cd *",
   "chmod *",
@@ -23,21 +24,24 @@ patterns = [
   "codex *",
   "comm *",
   "cp *",
+  "cut *",
   "/^curl(?!.*\\s-[A-Za-z]*[dFTX])(?!.*\\s--(?:data|form|upload|json|request)) .+$/",
   "dart *",
   "date *",
   "/^deno (check|fmt|test|lint|task|run|eval|info)( .*)?$/",
   "diff *",
+  "dirname *",
   "dotnet *",
   "echo *",
   "env",
+  "/^exit( \\d+)?$/",
   "fd *",
   "fig *",
   "find *",
   "flutter *",
   "/^gh .*?(issue|pr|run|release|repo) (view|list|watch)( .*)?$/",
-  "/^gh search (issues|prs|commits)( .*)?$/",
-  "/^gh api repos\\/[^\\s\\/]+\\/[^\\s\\/]+\\/(issues(\\/[0-9]+(\\/comments)?)?|pulls\\/[0-9]+\\/(comments|reviews)|readme)(\\s+--jq\\s+.*)?(\\s+-X\\s+GET.*)?$/",
+  "/^gh search (issues|prs|commits|code|repos)( .*)?$/",
+  "/^gh api (?!.*\\s-[A-Za-z]*[fF])(?!.*\\s--(field|raw-field|input|method(?![= ]+GET(\\s|$))))(?!.*\\s-[A-Za-z]*X(?!\\s*GET(\\s|$)))[\"']?\\/?[A-Za-z0-9][^\\s\"']*[\"']?(\\s.*)?$/",
   "/^gh auth (status|switch).*$/",
   "gh pr create --web *",
   "gh pr ready *",
@@ -49,24 +53,28 @@ patterns = [
   "head *",
   "jq *",
   "ls *",
+  "lsof *",
   "mise *",
   "mkdir *",
   "mktemp *",
   "msbuild *",
   "netstat *",
   "nvim *",
+  "node *",
   "/^(npx?|p?npm|yarn)( .*)?$/",
   "base64 *",
   "basename *",
   "openssl rand *",
   "pwd",
   "qmd *",
+  "read *",
   "permcheck *",
   "playwright-cli *",
   "reg query *",
   "prettier *",
   "prettierd *",
   "printf *",
+  "ps *",
   "rg *",
   "sd *",
   "sed *",
@@ -74,6 +82,7 @@ patterns = [
   "sleep *",
   "sort *",
   "tail *",
+  "tar *",
   "/^tasklist( .*)?$/",
   "terminal-notifier *",
   "timeout *",
@@ -82,9 +91,11 @@ patterns = [
   "uniq *",
   "/^unzip -(l|p) .+$/",
   "wc *",
+  "which *",
   "/^wmic .*\\bget\\b.*$/",
   "xxd *",
   "./gradlew *",
+  "/^[\\w.-]+ (--version|-v|-V)$/",
 ]
 
 [[rules]]
@@ -114,6 +125,11 @@ tool = "Read"
 file_path = "/tmp/**"
 
 [[rules]]
+tool = "Read"
+[rules.match]
+file_path = "/^.*[\\\\/]\\.claude[\\\\/]plugins[\\\\/].+$/"
+
+[[rules]]
 tools = ["Grep", "Glob"]
 [rules.match]
 path = "/^(?!(?:[A-Za-z]:)?[\\\\/]*$).+$/"
@@ -121,7 +137,7 @@ path = "/^(?!(?:[A-Za-z]:)?[\\\\/]*$).+$/"
 [[rules]]
 tool = "Skill"
 [rules.match]
-skill = "/^(zettelkasten|(codex-tools:)?codex|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments)$/"
+skill = "/^(zettelkasten|(codex-tools:)?codex|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments|code-flavor|tdd-flavor|mini-loop|figma|(remote-skills:)?playwright-cli)$/"
 
 [[rules]]
 tool = "SlashCommand"
@@ -352,6 +368,186 @@ expect = "allow"
 description = "gh api readme allow"
 tool = "Bash"
 input = { command = "gh api repos/owner/repo/readme --jq '.content'" }
+expect = "allow"
+
+[[tests]]
+description = "gh api org installations allow"
+tool = "Bash"
+input = { command = "gh api /orgs/example-org/installations --jq '.installations[] | {app_slug, repository_selection}'" }
+expect = "allow"
+
+[[tests]]
+description = "gh api quoted path allow"
+tool = "Bash"
+input = { command = "gh api \"/orgs/example-org/apps\"" }
+expect = "allow"
+
+[[tests]]
+description = "gh api workflow runs with query allow"
+tool = "Bash"
+input = { command = "gh api 'repos/owner/repo/actions/workflows/deploy.yml/runs?per_page=25' --jq '.workflow_runs[] | [.id, .conclusion, .head_branch] | @tsv'" }
+expect = "allow"
+
+[[tests]]
+description = "gh api --method GET allow"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/issues --method GET --paginate" }
+expect = "allow"
+
+[[tests]]
+description = "gh api -f field passthrough"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/issues -f title=hello" }
+expect = "passthrough"
+
+[[tests]]
+description = "gh api -F graphql passthrough"
+tool = "Bash"
+input = { command = "gh api graphql -F query=@query.graphql" }
+expect = "passthrough"
+
+[[tests]]
+description = "gh api -X POST --input passthrough"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/issues -X POST --input body.json" }
+expect = "passthrough"
+
+[[tests]]
+description = "gh api -X after --jq passthrough"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/issues/1 --jq '.number' -X DELETE" }
+expect = "passthrough"
+
+[[tests]]
+description = "gh api --method PATCH passthrough"
+tool = "Bash"
+input = { command = "gh api repos/owner/repo/issues/1 --method PATCH --field state=closed" }
+expect = "passthrough"
+
+[[tests]]
+description = "aws describe allow"
+tool = "Bash"
+input = { command = "aws elasticbeanstalk describe-events --application-name app --environment-name env --region ap-northeast-2 --start-time \"$STARTED_AT\" --query 'Events[].Message' --output text" }
+expect = "allow"
+
+[[tests]]
+description = "aws ecr describe-images allow"
+tool = "Bash"
+input = { command = "aws ecr describe-images --repository-name app --image-ids imageTag=latest --region ap-northeast-2 --query 'imageDetails[0].imagePushedAt' --output text" }
+expect = "allow"
+
+[[tests]]
+description = "aws update-environment passthrough"
+tool = "Bash"
+input = { command = "aws elasticbeanstalk update-environment --application-name app --environment-name env --version-label app:latest --region ap-northeast-2" }
+expect = "passthrough"
+
+[[tests]]
+description = "aws get-secret-value passthrough"
+tool = "Bash"
+input = { command = "aws secretsmanager get-secret-value --secret-id prod/db" }
+expect = "passthrough"
+
+[[tests]]
+description = "cut allow"
+tool = "Bash"
+input = { command = "cut -d: -f1" }
+expect = "allow"
+
+[[tests]]
+description = "dirname allow"
+tool = "Bash"
+input = { command = "dirname $f" }
+expect = "allow"
+
+[[tests]]
+description = "exit allow"
+tool = "Bash"
+input = { command = "exit 1" }
+expect = "allow"
+
+[[tests]]
+description = "gh search code allow"
+tool = "Bash"
+input = { command = "gh search code --repo openai/codex \"hook_event_name\" --limit 10 --json path --jq '.[].path'" }
+expect = "allow"
+
+[[tests]]
+description = "lsof allow"
+tool = "Bash"
+input = { command = "lsof -ti:9080" }
+expect = "allow"
+
+[[tests]]
+description = "node -p package.json version allow"
+tool = "Bash"
+input = { command = "node -p \"require('./node_modules/next/package.json').version\"" }
+expect = "allow"
+
+[[tests]]
+description = "node script allow"
+tool = "Bash"
+input = { command = "node scripts/release-prod.ts profile --repo ." }
+expect = "allow"
+
+[[tests]]
+description = "tar extract allow"
+tool = "Bash"
+input = { command = "tar xzf fake-indexeddb-6.2.5.tgz" }
+expect = "allow"
+
+[[tests]]
+description = "ps allow"
+tool = "Bash"
+input = { command = "ps aux" }
+expect = "allow"
+
+[[tests]]
+description = "read allow"
+tool = "Bash"
+input = { command = "read f" }
+expect = "allow"
+
+[[tests]]
+description = "which allow"
+tool = "Bash"
+input = { command = "which permcheck" }
+expect = "allow"
+
+[[tests]]
+description = "version flag allow"
+tool = "Bash"
+input = { command = "fnox --version" }
+expect = "allow"
+
+[[tests]]
+description = "node -v allow"
+tool = "Bash"
+input = { command = "node -v" }
+expect = "allow"
+
+[[tests]]
+description = "version flag with path passthrough"
+tool = "Bash"
+input = { command = "./bin/tool --version" }
+expect = "passthrough"
+
+[[tests]]
+description = "Read claude plugins allow"
+tool = "Read"
+input = { file_path = "/Users/me/.claude/plugins/cache/foo/skills/bar/SKILL.md" }
+expect = "allow"
+
+[[tests]]
+description = "Read home file passthrough"
+tool = "Read"
+input = { file_path = "/Users/me/.ssh/config" }
+expect = "passthrough"
+
+[[tests]]
+description = "Skill code-flavor allow"
+tool = "Skill"
+input = { skill = "code-flavor" }
 expect = "allow"
 
 [[tests]]
