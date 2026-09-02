@@ -44,11 +44,12 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
   - codex gpt는 다음 명령어로 모델 버전 확인
     `rg '^model\s*=\s*"([^"]+)"' ~/.codex/config.toml -r '$1'`
 
-## 내용 구상 후 체크리스트
+## 내용 구상, 리뷰 시 체크리스트
 
 - 로컬 경로같은 민감 정보 익명화
 - 중복없이 간결히 작성
 - 재현성이 낮은 정보, 가령 오케스트레이션이나 유저 스킬 언급 배제
+- 순서대로 읽을 때 '왜?'라고 의문이 드는 부분이 있는지
 
 ## 예시
 
@@ -74,7 +75,3 @@ refactor: 임포트 맵 키 경고 해결
 
 AI-assistant: GPT-5.5, Opus 4.6
 ```
-
-# 커밋 후
-
-- 파워쉘 환경이면 커밋 메시지에 이스케이핑 이슈가 생겼는지 다시 확인
