@@ -20,6 +20,7 @@
 - 커밋 시: commit-flavor
 - 검토 시: peer-review 또는 flavor-review
 - 서브에이전트 호출 시: 내장 기능 대신 codex, claude
+- 메모리 필요 시: 시스템 메모리는 휘발 가능해 zettelkasten 사용
 
 가령 테스트 코드 작성 시 code-flavor, tdd-flavor 확인
 

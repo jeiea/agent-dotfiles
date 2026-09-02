@@ -1,6 +1,6 @@
 ---
 name: zettelkasten
-description: 기억 필요 시, 기존 지식 검색, 작업 후 재사용 지식 저장 시 사용. amsd는 이 스킬의 경로 이름. 시스템 메모리 기능은 초기화 가능성이 있어 이 스킬 우선.
+description: 기억 필요 시, 기존 지식 검색, 작업 후 재사용 지식 저장 시 사용. amsd는 이 스킬이 쓰는 경로.
 allowed-tools: Bash(mise x node@latest -- qmd *) Bash(qmd *) Bash(git push) Skill(commit-flavor) Skill(commit-flavor *) Read Write(docs/agent/**)
 ---
 
