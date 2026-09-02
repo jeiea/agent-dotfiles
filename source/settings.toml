@@ -19,6 +19,7 @@ switchModelsOnFlag = false
 agentPushNotifEnabled = true
 skipAutoPermissionPrompt = true
 remoteControlAtStartup = false
+feedbackDrafts = "off"
 
 [clients.claude.config.env]
 NO_COLOR = "1"
