@@ -14,7 +14,7 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 # pane_id: 응답 .result.pane.pane_id (예: w24:pC)
 herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus
 herdr agent start <name> --kind claude --pane <pane_id> -- \
-  --model best --effort high --permission-mode dontAsk \
+  --model best --effort high \
   --name "<호출자 세션 ID> <위임 목적>" \
   '--disallowedTools=Skill(codex-tools:codex)'
 herdr agent prompt <name> "$(cat <<'PROMPT'
@@ -55,7 +55,6 @@ jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsa
 
 ```sh
 claude -p --model best --verbose --output-format stream-json --effort high \
-  --permission-mode dontAsk \
   '--disallowedTools=Skill(codex-tools:codex)' --resume <session_id> - \
   <<'PROMPT' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
 A 작업을 완료했습니다.
@@ -80,16 +79,14 @@ jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsa
 --model best                         우선 사용; 사용량 오류면 opus로 같은 요청 재시도
 --effort xhigh                       계획
 --effort high                        구현·검토
---permission-mode dontAsk            사전 허용 도구만 실행
---permission-mode bypassPermissions  격리된 쓰기 작업
+--permission-mode auto               쓰기 허용
 --allowedTools=<tools>               추가 허용 도구
 --disallowedTools=<tools>            금지 도구
 --add-dir <path>                     추가 디렉토리
 --name <name>                        <호출자 세션 ID> <위임 목적>
 ```
 
-- `dontAsk`에서 웹 조사 시 `'--allowedTools=WebSearch,WebFetch(domain:*)'` 추가
-- `bypassPermissions`는 컨테이너·VM 등 격리 환경에서만 사용
+- 읽기 전용에서 웹 허용 시 `'--allowedTools=WebSearch,WebFetch(domain:*)'` 추가
 
 # 결과·오류 처리
 
