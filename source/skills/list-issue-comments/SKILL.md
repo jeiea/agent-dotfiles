@@ -1,7 +1,7 @@
 ---
 name: list-issue-comments
-allowed-tools: Bash(gh api *) Bash(git remote *) Bash(gh issue view *)
 description: 권한 요청 마찰없이 깃헙 이슈 본문과 코멘트 조회. 코멘트에 추가 맥락이 있을 수 있어 gh cli 대신 사용.
+allowed-tools: Bash(gh api *) Bash(git remote *) Bash(gh issue view *)
 ---
 
 # 1. 인자 확인
@@ -23,4 +23,5 @@ gh api repos/{ORG}/{REPO}/issues/{ISSUE_NUMBER}/comments --jq '.[] | { user_logi
 
 ## 사용 예시
 
-- 유저: https://github.com/microsoft/TypeScript/issues/62546 요약해줘 → 조회 후 요약
+- 유저: https://github.com/microsoft/TypeScript/issues/62546 요약해줘 → 조회 후
+  요약

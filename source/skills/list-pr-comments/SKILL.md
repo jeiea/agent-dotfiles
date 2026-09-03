@@ -1,7 +1,7 @@
 ---
 name: list-pr-comments
-allowed-tools: Bash(gh pr view *) Bash(gh api *) Bash(git remote *)
 description: 권한 요청 마찰없이 깃헙 PR 리뷰 코멘트 조회. PR 코멘트라고만 했을 시 list-issue-comments 스킬 동시 사용 필요.
+allowed-tools: Bash(gh pr view *) Bash(gh api *) Bash(git remote *)
 ---
 
 ### 1. 저장소, PR 번호 확인
