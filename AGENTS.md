@@ -50,6 +50,7 @@ CLI 도구(soa)는 별도 저장소: https://github.com/jeiea/soa `$SOA_URL`
 ```sh
 deno task build                   # 기본 설정 빌드
 deno task install                 # 기본 설정 설치
+deno task sync                    # 빌드 후 설치. 변경 없는 플러그인은 재설치 생략
 deno task plugins -- list         # 논리 플러그인 조회
 deno task test                    # source/ 내 테스트
 ```
