@@ -1,7 +1,7 @@
 ---
 name: agent-slack
 description: agent-slack CLI로 Slack(슬랙) 메시지 조회, 검색, 작성, 수정 시 사용
-allowed-tools: Bash(agent-slack message get:*), Bash(agent-slack message list:*), Bash(agent-slack search:*), Bash(agent-slack help:*), Bash(agent-slack message draft:*), Bash(agent-slack message react add:*), Bash(agent-slack message react remove:*), Bash(agent-slack auth:*)
+allowed-tools: Bash(agent-slack message get:*), Bash(agent-slack message list:*), Bash(agent-slack search:*), Bash(agent-slack help:*), Bash(agent-slack message compose:*), Bash(agent-slack message draft list:*), Bash(agent-slack message react add:*), Bash(agent-slack message react remove:*), Bash(agent-slack auth:*)
 ---
 
 # 기본 원칙
@@ -48,12 +48,18 @@ agent-slack search all "incident review" --channel "eng" --limit 10
 # 메시지 작성
 
 ```bash
-# 유저에게 초안 전달, 허락 필요 시 이 명령어 바로 실행
-agent-slack message draft "general"
-agent-slack message draft "https://workspace.slack.com/archives/C123/p1700000000000000" "[배포 알림] ..."
+# 유저에게 초안 전송. 명령어 실행 수락 불필요 (브라우저 편집기, 비대화 환경에선 send와 동일)
+agent-slack message compose "general"
+agent-slack message compose "https://workspace.slack.com/archives/C123/p1700000000000000" "[배포 알림] ..."
+
+# 슬랙 앱 초안함에 저장, 전송 안 함
+agent-slack message draft create "general" "[배포 알림] ..."
 
 # 채널로 전송
 agent-slack message send "general" "배포 확인 완료"
+
+# 링크·미디어 미리보기 억제 (send, compose 공통)
+agent-slack message send "general" "릴리즈 노트: https://example.com" --no-unfurl
 
 # 스레드 답글 전송
 agent-slack message send "https://workspace.slack.com/archives/C123/p1700000000000000" "제가 할게요."
@@ -64,7 +70,7 @@ agent-slack message edit "https://workspace.slack.com/archives/C123/p17000000000
 # 채널과 `ts`로 수정
 agent-slack message edit "general" "수정된 내용" --workspace "myteam" --ts "1770165109.628379"
 
-# 리액션 추가/제거 (emoji는 콜론 없이)
+# 리액션 추가/제거 (emoji: rocket, :rocket:, 🚀 모두 가능)
 agent-slack message react add "C123" "complete" --ts "1770165109.628379"
 ```
 
@@ -74,7 +80,7 @@ agent-slack message react add "C123" "complete" --ts "1770165109.628379"
 ## 초안 완료 확인
 
 - `Draft editor` 출력은 유저가 초안 검토 중이라는 의미
-- 명령 종료 결과의 `sent: true` 확인
+- 명령 종료 결과의 `sent: true` 확인. `cancelled: true`면 유저 취소
   - 진행 중 세션을 반환하는 환경에서는 같은 세션 결과를 이어서 확인
 - 성공 여부 불명 시 `message get/list/search`로 게시 여부와 `ts` 확인 후 재시도
 
