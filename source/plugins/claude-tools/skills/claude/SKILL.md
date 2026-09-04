@@ -8,11 +8,9 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 
 # herdr에서 새로 호출
 
-`test "${HERDR_ENV:-}" = 1`이면 pane 생성 후 실행:
+`test "${HERDR_ENV:-}" = 1`이면 herdr 스킬 위임 탭에서 pane 확보 후 실행:
 
 ```sh
-# pane_id: 응답 .result.pane.pane_id (예: w24:pC)
-herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focus
 herdr agent start <name> --kind claude --pane <pane_id> -- \
   --model best --effort high \
   --name "<호출자 세션 ID> <위임 목적>" \
@@ -25,7 +23,6 @@ herdr agent read <name> --source recent-unwrapped --lines 120
 ```
 
 - 모델·추론 강도·권한·도구·경로·이름 플래그는 작업에 맞게 조정
-- 호출자 세션 ID: `$CODEX_THREAD_ID`, 클로드는 스크래치패드 경로의 UUID
 - 상태 처리, 결과 회수, 정리는 herdr 스킬 적용
 
 # 비herdr에서 새로 호출
@@ -87,6 +84,7 @@ jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsa
 ```
 
 - 읽기 전용에서 웹 허용 시 `'--allowedTools=WebSearch,WebFetch(domain:*)'` 추가
+- 호출자 세션 ID: `$CODEX_THREAD_ID`, 클로드는 스크래치패드 경로의 UUID
 
 # 결과·오류 처리
 

@@ -13,11 +13,33 @@ allowed-tools: Bash(herdr *)
 - `cwd`를 대상 선택 단서로 사용
 - 클로드·코덱스 세션 ID는 `pane_id` 아닌 `agent_session.value`
 
+# 위임 탭
+
+새 에이전트 시작 시만 적용. 호출자당 1개, 탭 ID 기억해 재사용. 상황별 한 명령만
+실행:
+
+```sh
+# 최초 위임: 형제 탭 생성. pane_id는 .result.root_pane.pane_id
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" \
+  --label "<호출자 세션 ID>" --no-focus
+# 이후 위임: 직전 생성 pane 분할. pane_id는 .result.pane.pane_id
+herdr pane split --pane <직전 pane_id> --direction right --cwd "$PWD" --no-focus
+# 탭 ID 분실 시 label이 호출자 세션 ID인 탭 조회.
+# $HERDR_TAB_ID 제외, 복수 일치면 유저 확인
+herdr tab list --workspace "$HERDR_WORKSPACE_ID"
+```
+
+- 호출자 세션 ID: `$CODEX_THREAD_ID`, 클로드는 스크래치패드 경로의 UUID
+- `--direction` 필수. `pane layout`으로 직전 pane 확인해 넓으면 `right`, 아니면
+  `down`. 유저 지정 시 따름
+- 호출자 pane·탭 분할 금지
+
 # 프롬프트
 
 - `\n` 이스케이프 대신 실제 개행 사용
 - 새 작업은 자기완결적 지시, 후속 작업은 변경점·종료 조건 중심
-- 병렬 위임은 pane별 백그라운드 셸에서 동시 실행 후 회수
+- 병렬 위임은 pane 확보를 직렬로 마친 뒤 pane별 백그라운드 셸에서 동시 실행 후
+  회수
 - `agent prompt --wait` 뒤 별도 `agent wait` 금지. 전환 전 idle에 즉시 반환 가능
 
 # 상태 처리
@@ -33,6 +55,7 @@ allowed-tools: Bash(herdr *)
 
 # 정리
 
-- 직접 만든 pane은 완료 확인 후 닫고, 기존 pane은 유지
+- 위임 탭은 에이전트 전부 회수 후 `tab close`. 내부 pane 개별 종료 없음
+- 그 외 직접 만든 pane은 완료 확인 후 닫기
 - working 대상에 독촉·조기 답변 요구 금지
 - 직접 만들지 않은 pane·tab·workspace 조작·종료 금지
