@@ -23,6 +23,7 @@ feedbackDrafts = "off"
 
 [clients.claude.config.env]
 NO_COLOR = "1"
+CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1"
 
 [clients.claude.config.attribution]
 commit = ""
@@ -63,6 +64,9 @@ vim_mode_default = false
 
 [clients.codex.config.windows]
 sandbox = "elevated"
+
+[clients.codex.config.shell_environment_policy.set]
+NO_COLOR = "1"
 
 [[clients.codex.config.skills.config]]
 name = "openai-templates:artifact-template-analytics-dashboard"
