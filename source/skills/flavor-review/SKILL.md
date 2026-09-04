@@ -23,6 +23,6 @@ allowed-tools: Skill(peer-review) Skill(commit-flavor)
      - 위반 + 비권고형 원문 → Must fix now
      - 위반 + 권고형 원문 → Consider
      - 사소하더라도 최대 10가지 제안
-3. 재판정 시 순 코드 증가로만 해결 가능한 제안은 결함·위반 해소 아니면 후속
-   작업으로 보류
-4. 반영 후 `commit-flavor`로 amend 또는 추가 커밋
+3. `peer-review` 재판정 추가 기준: 순 코드 증가로만 해결 가능한 제안은 결함·위반
+   해소 아니면 `Follow-up`
+4. 반영 후 `commit-flavor`로 amend 또는 추가 커밋. `Follow-up`은 통합 보고
