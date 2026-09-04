@@ -16,6 +16,7 @@ herdr pane split --pane "$HERDR_PANE_ID" --direction down --cwd "$PWD" --no-focu
 herdr agent start <name> --kind codex --pane <pane_id> -- \
   --approve-for-me --search --config model_reasoning_effort=high
 herdr agent prompt <name> '/rename <호출자 세션 ID> <위임 목적>'
+herdr agent read <name> --lines 5  # 이름 변경 문구와 빈 입력창 확인 후 진행
 herdr agent prompt <name> "$(cat <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
@@ -25,7 +26,8 @@ herdr agent read <name> --source recent-unwrapped --lines 120
 
 - `agent start` 뒤 플래그는 전역 플래그. `--approve-for-me`가
   `workspace-write`를 설정하므로 `--sandbox` 생략
-- `/rename` 직후 `--wait` 금지. 상태 변화 전이라 stalled 오류 발생 가능
+- `/rename`: 모델 턴 없음. `--wait`하면 stalled 오류, 제출 확인 없이 다음 prompt
+  보내면 입력창에서 합쳐져 통째로 이름이 됨
 - 호출자 세션 ID: `$CODEX_THREAD_ID`, 클로드는 스크래치패드 경로의 UUID
 - `--direction` 필수. 기본 `down`, 유저 지정 시 따름
 - 상태 처리, 결과 회수, 정리는 herdr 스킬 적용
