@@ -13,7 +13,7 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 ```sh
 herdr agent start <name> --kind codex --pane <pane_id> -- --approve-for-me --search
 herdr agent prompt <name> '/rename <호출자 세션 ID> <위임 목적>'
-herdr agent read <name> --lines 5  # 이름 변경 문구와 빈 입력창 확인 후 진행
+herdr agent read <name> --source visible --lines 5  # 이름 변경 문구와 빈 입력창 확인 후 진행
 herdr agent prompt <name> "$(cat <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT

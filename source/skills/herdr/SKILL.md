@@ -44,6 +44,9 @@ herdr tab list --workspace "$HERDR_WORKSPACE_ID"
 
 # 상태 처리
 
+- `agent read --source`: `recent-unwrapped`를 선호하나 에이전트 작업 중이면 에러
+  발생으로 `visible` 사용
+
 `blocked`, `stalled`, `timeout`, `unknown`이면 `agent get`과 `agent read`로 확인
 후 해소까지 반복:
 
