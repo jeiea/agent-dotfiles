@@ -56,6 +56,9 @@ goals = true
 js_repl = false
 skill_search = false
 
+[clients.codex.config.features.context_management]
+experimental_mode = true
+
 [clients.codex.config.notice]
 hide_full_access_warning = true
 
