@@ -11,8 +11,7 @@ allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *
 `test "${HERDR_ENV:-}" = 1`이면 herdr 스킬 위임 탭에서 pane 확보 후 실행:
 
 ```sh
-herdr agent start <name> --kind codex --pane <pane_id> -- \
-  --approve-for-me --search --config model_reasoning_effort=high
+herdr agent start <name> --kind codex --pane <pane_id> -- --approve-for-me --search
 herdr agent prompt <name> '/rename <호출자 세션 ID> <위임 목적>'
 herdr agent read <name> --lines 5  # 이름 변경 문구와 빈 입력창 확인 후 진행
 herdr agent prompt <name> "$(cat <<'PROMPT'
@@ -35,7 +34,7 @@ herdr agent read <name> --source recent-unwrapped --lines 120
 openssl rand -hex 4
 # → a1b2c3d4
 
-codex --approve-for-me --search --config model_reasoning_effort=high \
+codex --approve-for-me --search \
   exec --sandbox read-only - <<'PROMPT' 2>>/tmp/a1b2c3d4.log
 claude와 codex 재호출 금지.
 계획자로서 작업 목록과 계획을 제시하세요.
@@ -52,7 +51,7 @@ PROMPT
 조금이라도 이전 호출과 관련 있으면 새 호출 대신 재개:
 
 ```sh
-codex --approve-for-me --search --config model_reasoning_effort=high \
+codex --approve-for-me --search \
   exec --sandbox read-only resume <세션 UUID 또는 이름> - <<'PROMPT' \
   2>>/tmp/a1b2c3d4.log
 A 작업을 완료했습니다.
@@ -73,8 +72,7 @@ PROMPT
 전역 플래그 (`exec` 앞)
 --approve-for-me                         항상 사용
 --search                                 특별한 이유 없으면 사용
---config model_reasoning_effort=xhigh    계획·아키텍처
---config model_reasoning_effort=high     검토·디버깅 등
+--config model_reasoning_effort=high     계획·설계 시
 --cd <path>                              작업 디렉토리
 --add-dir <path>                         추가 디렉토리 허용
 
