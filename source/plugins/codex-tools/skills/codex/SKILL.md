@@ -72,6 +72,7 @@ PROMPT
 전역 플래그 (`exec` 앞)
 --approve-for-me                         항상 사용
 --search                                 특별한 이유 없으면 사용
+--config model_reasoning_effort=medium   계획·설계 시
 --cd <path>                              작업 디렉토리
 --add-dir <path>                         추가 디렉토리 허용
 
