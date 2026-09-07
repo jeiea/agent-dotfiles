@@ -21,12 +21,8 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
   - 제목 언어 사용
   - 섹션이 2개 이상이면 `[배경]`처럼 섹션 제목을 추가해 분리
   - 섹션
-    - `배경`, `Background`
-      - 피그마, 슬랙, 이슈 URL 등 근거 및 참고 자료
-      - 이전 방식의 문제
-    - `코멘트`, `Comment`
-      - 시행착오, 유저 의도
-      - 이 커밋하고만 연관된 유저 프롬프트 등
+    - `배경`, `Background`: 기존 문제, 근거·참고 URL 등
+    - `코멘트`, `Comment`: 시행착오·유저 의도·해당 커밋에만 관련된 프롬프트 등
     - `검증`, `Verification`: 변경 의도와 요구사항을 검증한 방법, 명령어, 그
       결과 등
       - 요구사항 확인에 가까운 순 최대 3개
@@ -47,20 +43,10 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
 ## 내용 구상, 리뷰 시 체크리스트
 
 - 로컬 경로같은 민감 정보 익명화
-- 중복없이 간결히 작성
 - 재현성이 낮은 정보, 가령 오케스트레이션이나 유저 스킬 언급 배제
 - 순서대로 읽을 때 '왜?'라고 의문이 드는 부분이 있는지
 
 ## 예시
-
-```
-feat: expand button for touch ux
-
-- [x] `pnpm test -- src/e2e.test.ts` - pass
-- [x] `pnpm exec playwright test src/e2e.test.ts --project=chromium --project=webkit` - margin change verified
-
-AI-assistant: GPT-5.5
-```
 
 ```
 refactor: 임포트 맵 키 경고 해결
