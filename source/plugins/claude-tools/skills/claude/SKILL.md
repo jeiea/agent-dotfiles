@@ -12,7 +12,7 @@ allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *)
 
 ```sh
 herdr agent start <name> --kind claude --pane <pane_id> -- \
-  --model best --effort high \
+  --model best --effort medium \
   --name "<호출자 세션 ID> <위임 목적>" \
   '--disallowedTools=Skill(codex-tools:codex)'
 herdr agent prompt <name> "$(cat <<'PROMPT'
@@ -32,7 +32,7 @@ herdr agent read <name> --source recent-unwrapped --lines 120
 openssl rand -hex 4
 # → a1b2c3d4
 
-claude -p --model best --verbose --output-format stream-json --effort high \
+claude -p --model best --verbose --output-format stream-json --effort medium \
   --permission-mode dontAsk \
   --name "<호출자 세션 ID> <위임 목적>" \
   '--disallowedTools=Skill(codex-tools:codex)' - <<'PROMPT' \
@@ -51,7 +51,7 @@ jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsa
 조금이라도 이전 호출과 관련 있으면 새 호출 대신 재개:
 
 ```sh
-claude -p --model best --verbose --output-format stream-json --effort high \
+claude -p --model best --verbose --output-format stream-json --effort medium \
   '--disallowedTools=Skill(codex-tools:codex)' --resume <session_id> - \
   <<'PROMPT' >/tmp/a1b2c3d4b.jsonl 2>>/tmp/a1b2c3d4.log
 A 작업을 완료했습니다.
@@ -74,8 +74,7 @@ jq -r 'select(.type == "result") | .session_id, .result, ({modelUsd: ((.modelUsa
 
 ```text
 --model best                         우선 사용; 사용량 오류면 opus로 같은 요청 재시도
---effort xhigh                       계획
---effort high                        구현·검토
+--effort high                        계획 시
 --permission-mode auto               쓰기 허용
 --allowedTools=<tools>               추가 허용 도구
 --disallowedTools=<tools>            금지 도구
