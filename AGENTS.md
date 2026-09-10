@@ -28,23 +28,6 @@ agent-files/
 CLI 도구(soa)는 별도 저장소: https://github.com/jeiea/soa `$SOA_URL`
 환경변수(mise.toml)로 raw GitHub URL 참조. 인증은 `.env`의 `DENO_AUTH_TOKENS`.
 
-## 리소스 관리
-
-- `source/skills/<name>/SKILL.md`: 작업 절차와 트리거. 필요한 `scripts/`,
-  `references/`, `assets/`를 같은 스킬 디렉터리에 배치
-- `source/prompts/<name>.md`: 모든 활성 client에 포함할 프롬프트. client 형식에
-  맞게 command, prompt 또는 skill로 렌더링
-- `source/agents/<name>.md`: 공용 에이전트. `settings.toml`의 `main_agent`는
-  client 메인 지시 파일이 되고 나머지는 일반 agent로 렌더링
-- `source/agents/<name>.local.md`: 같은 이름의 agent 뒤에 덧붙일 로컬 지시.
-- 모든 client에 필요한 리소스는 위 top-level 디렉터리에 두고, 선택적 리소스는
-  `source/plugins/<name>/` 안에 같은 `skills|prompts|agents` 구조로 배치
-- client별 plugin은 `settings.toml`의 `clients.<name>.plugins`에서 선택.
-  평탄화되는 client에서 리소스 이름이 겹치면 빌드 에러
-- 원격 리소스는 `remotes.manifest.json`에 논리 plugin source로 선언하고
-  `source/plugins/`에 벤더링. 추가·제거에는 `soa plugins add|remove`와
-  `soa plugins source add|remove` 사용
-
 ## 명령
 
 ```sh
