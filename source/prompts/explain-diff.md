@@ -1,6 +1,6 @@
 ---
 name: explain-diff
-description: 코드 변경, 브랜치, PR을 배경·직관·코드·퀴즈 순으로 설명
+description: 유저 언급 시 배경과 함께 설명
 ---
 
 - 배경: 주변 코드 폭넓게 탐색 후 기존 구조 설명
