@@ -1,10 +1,20 @@
 ---
 name: herdr
-description: 코드 탐색이 아닌 작업 위임 시 `echo "herdr=${HERDR_ENV:-off}"` 출력이 herdr=1이면 herdr CLI 사용
-allowed-tools: Bash(herdr *)
+description: 코드 탐색이 아닌 작업 위임 시 delegate CLI 사용
+allowed-tools: Bash(herdr *) Bash(deno run *) Bash(mise exec -- deno run *)
 ---
 
 예외 상황 등의 정보 필요 시 `herdr --skill` 확인.
+
+# 작업 위임
+
+```sh
+deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts run --help
+deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts run [OPTIONS]
+```
+
+- 일반 위임: `delegate` 사용
+- 수동 절차: blocked 해소, 직접 pane 조작 등 예외 상황에만 사용
 
 # 대상 선택
 

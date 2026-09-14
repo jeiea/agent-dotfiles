@@ -4,7 +4,8 @@ description: 계획자, 검토자, 디버깅 전문가인 코덱스(Codex) 호�
 allowed-tools: Bash(codex *) Read(/tmp/*) Bash(openssl rand -hex 4) Bash(herdr *) Skill(herdr)
 ---
 
-작업 디렉토리의 `AGENTS.md` 맥락을 공유하는 중첩 Codex 실행
+위임은 herdr 스킬의 `delegate` CLI 우선. 작업 디렉토리의 `AGENTS.md` 맥락을
+공유하는 중첩 Codex 실행.
 
 # herdr에서 새로 호출
 

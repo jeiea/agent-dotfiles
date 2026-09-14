@@ -2,11 +2,15 @@
   "version": "5",
   "specifiers": {
     "jsr:@jeiea/snippets@~0.1.1": "0.1.1",
+    "jsr:@optique/core@^1.2.0": "1.2.6",
+    "jsr:@optique/core@^1.2.6": "1.2.6",
+    "jsr:@optique/run@^1.2.0": "1.2.6",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/cli@1": "1.0.29",
     "jsr:@std/internal@^1.0.12": "1.0.13",
     "jsr:@std/internal@^1.0.13": "1.0.13",
     "jsr:@std/path@1": "1.1.4",
+    "jsr:@std/yaml@1": "1.1.1",
     "npm:@mozilla/readability@0.6": "0.6.0",
     "npm:@types/jsdom@27": "27.0.0",
     "npm:@types/turndown@^5.0.6": "5.0.6",
@@ -19,6 +23,15 @@
   "jsr": {
     "@jeiea/snippets@0.1.1": {
       "integrity": "6d6b5743ec7277e767626653c5200e7df18ba164a2d6fb1e1cb8dde9671013f6"
+    },
+    "@optique/core@1.2.6": {
+      "integrity": "1fb341cefd6f3594cbd84ed4f60f874279746bbea5441f0c529364db450cd501"
+    },
+    "@optique/run@1.2.6": {
+      "integrity": "c4814956cd1ec7ebbdaf48dad2a4aeb2aad89e081553c1214ece42a008f6e682",
+      "dependencies": [
+        "jsr:@optique/core@^1.2.6"
+      ]
     },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
@@ -40,6 +53,9 @@
       "dependencies": [
         "jsr:@std/internal@^1.0.12"
       ]
+    },
+    "@std/yaml@1.1.1": {
+      "integrity": "a57665ecf3d17b926380593a56625d8a10cc7281802f1e993b5ebc94a48e71f8"
     }
   },
   "npm": {

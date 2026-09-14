@@ -4,7 +4,8 @@ description: 프론트엔드 코드 작성, 조율자, 맥락 조사자로 특�
 allowed-tools: Bash(claude *) Bash(openssl rand -hex 4) Bash(jq *) Bash(herdr *) Skill(herdr) Read(/tmp/*)
 ---
 
-작업 디렉토리의 `CLAUDE.md` 맥락을 공유하는 중첩 Claude Code 실행
+위임은 herdr 스킬의 `delegate` CLI 우선. 작업 디렉토리의 `CLAUDE.md` 맥락을
+공유하는 중첩 Claude Code 실행.
 
 # herdr에서 새로 호출
 
