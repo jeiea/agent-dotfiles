@@ -15,18 +15,23 @@ allowed-tools: Bash(herdr *)
 
 # 위임 탭
 
-새 에이전트 시작 시만 적용. 호출자당 1개, 탭 ID 기억해 재사용. 상황별 한 명령만
-실행:
+새 에이전트 시작 시만 적용. 호출자당 1개, 탭 ID 기억해 재사용.
+
+- 상황별 명령 하나만 실행
+  - 탭 생성·조회 직전 `pane current --current`로 현재 위치 확인
+  - pane 이동 후 `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`는 시작 위치 유지
+  - 응답 `.result.pane`의 `workspace_id`, `tab_id` 사용
 
 ```sh
-# 최초 위임: 형제 탭 생성. pane_id는 .result.root_pane.pane_id
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" \
+herdr pane current --current
+# 최초 위임. pane_id는 .result.root_pane.pane_id
+herdr tab create --workspace <현재 workspace_id> --cwd "$PWD" \
   --label "<호출자 세션 ID>" --no-focus
-# 이후 위임: 직전 생성 pane 분할. pane_id는 .result.pane.pane_id
+# 이후 위임. pane_id는 .result.pane.pane_id
 herdr pane split --pane <직전 pane_id> --direction right --cwd "$PWD" --no-focus
-# 탭 ID 분실 시 label이 호출자 세션 ID인 탭 조회.
-# $HERDR_TAB_ID 제외, 복수 일치면 유저 확인
-herdr tab list --workspace "$HERDR_WORKSPACE_ID"
+# 탭 ID 분실 시 호출자 세션 ID와 같은 label 조회.
+# 현재 tab_id 제외, 복수면 유저 확인
+herdr tab list --workspace <현재 workspace_id>
 ```
 
 - 호출자 세션 ID: `$CODEX_THREAD_ID`, 클로드는 스크래치패드 경로의 UUID
