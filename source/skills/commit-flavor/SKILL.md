@@ -8,7 +8,7 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
 
 # 커밋 메시지 작성 시
 
-- 최근 커밋을 확인해 양식, 언어 따르기
+- 최근 커밋 양식, **언어** 따르기
   - 최초 커밋이라면 `feat: add new feature` 언어와 형식으로 작성
 - conventional commit 같다면 아래 중 첫번째로 일치하는 접두사 사용
   - test: 테스트 관련만 수정
