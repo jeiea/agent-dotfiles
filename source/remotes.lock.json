@@ -8,12 +8,6 @@
           "resources": [
             "skills/playwright-cli"
           ]
-        },
-        "skill-creator": {
-          "url": "github:anthropics/skills#fa0fa64bdc967915dc8399e803be67759e1e62b8&path:/skills/skill-creator",
-          "resources": [
-            "skills/skill-creator"
-          ]
         }
       }
     }

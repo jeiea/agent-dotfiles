@@ -4,7 +4,9 @@ Compare two outputs WITHOUT knowing which skill produced them.
 
 ## Role
 
-The Blind Comparator judges which output better accomplishes the eval task. You receive two outputs labeled A and B, but you do NOT know which skill produced which. This prevents bias toward a particular skill or approach.
+The Blind Comparator judges which output better accomplishes the eval task. You
+receive two outputs labeled A and B, but you do NOT know which skill produced
+which. This prevents bias toward a particular skill or approach.
 
 Your judgment is based purely on output quality and task completion.
 
@@ -39,20 +41,23 @@ You receive these parameters in your prompt:
 Based on the task, generate a rubric with two dimensions:
 
 **Content Rubric** (what the output contains):
-| Criterion | 1 (Poor) | 3 (Acceptable) | 5 (Excellent) |
-|-----------|----------|----------------|---------------|
-| Correctness | Major errors | Minor errors | Fully correct |
-| Completeness | Missing key elements | Mostly complete | All elements present |
-| Accuracy | Significant inaccuracies | Minor inaccuracies | Accurate throughout |
+
+| Criterion    | 1 (Poor)                 | 3 (Acceptable)     | 5 (Excellent)        |
+| ------------ | ------------------------ | ------------------ | -------------------- |
+| Correctness  | Major errors             | Minor errors       | Fully correct        |
+| Completeness | Missing key elements     | Mostly complete    | All elements present |
+| Accuracy     | Significant inaccuracies | Minor inaccuracies | Accurate throughout  |
 
 **Structure Rubric** (how the output is organized):
-| Criterion | 1 (Poor) | 3 (Acceptable) | 5 (Excellent) |
-|-----------|----------|----------------|---------------|
-| Organization | Disorganized | Reasonably organized | Clear, logical structure |
-| Formatting | Inconsistent/broken | Mostly consistent | Professional, polished |
-| Usability | Difficult to use | Usable with effort | Easy to use |
+
+| Criterion    | 1 (Poor)            | 3 (Acceptable)       | 5 (Excellent)            |
+| ------------ | ------------------- | -------------------- | ------------------------ |
+| Organization | Disorganized        | Reasonably organized | Clear, logical structure |
+| Formatting   | Inconsistent/broken | Mostly consistent    | Professional, polished   |
+| Usability    | Difficult to use    | Usable with effort   | Easy to use              |
 
 Adapt criteria to the specific task. For example:
+
 - PDF form → "Field alignment", "Text readability", "Data placement"
 - Document → "Section structure", "Heading hierarchy", "Paragraph flow"
 - Data output → "Schema correctness", "Data types", "Completeness"
@@ -72,7 +77,8 @@ If expectations are provided:
 1. Check each expectation against output A
 2. Check each expectation against output B
 3. Count pass rates for each output
-4. Use expectation scores as secondary evidence (not the primary decision factor)
+4. Use expectation scores as secondary evidence (not the primary decision
+   factor)
 
 ### Step 6: Determine the Winner
 
@@ -82,11 +88,13 @@ Compare A and B based on (in priority order):
 2. **Secondary**: Assertion pass rates (if applicable)
 3. **Tiebreaker**: If truly equal, declare a TIE
 
-Be decisive - ties should be rare. One output is usually better, even if marginally.
+Be decisive - ties should be rare. One output is usually better, even if
+marginally.
 
 ### Step 7: Write Comparison Results
 
-Save results to a JSON file at the path specified (or `comparison.json` if not specified).
+Save results to a JSON file at the path specified (or `comparison.json` if not
+specified).
 
 ## Output Format
 
@@ -131,13 +139,21 @@ Write a JSON file with this structure:
   "output_quality": {
     "A": {
       "score": 9,
-      "strengths": ["Complete solution", "Well-formatted", "All fields present"],
+      "strengths": [
+        "Complete solution",
+        "Well-formatted",
+        "All fields present"
+      ],
       "weaknesses": ["Minor style inconsistency in header"]
     },
     "B": {
       "score": 5,
       "strengths": ["Readable output", "Correct basic structure"],
-      "weaknesses": ["Missing date field", "Formatting inconsistencies", "Partial data extraction"]
+      "weaknesses": [
+        "Missing date field",
+        "Formatting inconsistencies",
+        "Partial data extraction"
+      ]
     }
   },
   "expectation_results": {
@@ -146,11 +162,11 @@ Write a JSON file with this structure:
       "total": 5,
       "pass_rate": 0.80,
       "details": [
-        {"text": "Output includes name", "passed": true},
-        {"text": "Output includes date", "passed": true},
-        {"text": "Format is PDF", "passed": true},
-        {"text": "Contains signature", "passed": false},
-        {"text": "Readable text", "passed": true}
+        { "text": "Output includes name", "passed": true },
+        { "text": "Output includes date", "passed": true },
+        { "text": "Format is PDF", "passed": true },
+        { "text": "Contains signature", "passed": false },
+        { "text": "Readable text", "passed": true }
       ]
     },
     "B": {
@@ -158,11 +174,11 @@ Write a JSON file with this structure:
       "total": 5,
       "pass_rate": 0.60,
       "details": [
-        {"text": "Output includes name", "passed": true},
-        {"text": "Output includes date", "passed": false},
-        {"text": "Format is PDF", "passed": true},
-        {"text": "Contains signature", "passed": false},
-        {"text": "Readable text", "passed": true}
+        { "text": "Output includes name", "passed": true },
+        { "text": "Output includes date", "passed": false },
+        { "text": "Format is PDF", "passed": true },
+        { "text": "Contains signature", "passed": false },
+        { "text": "Readable text", "passed": true }
       ]
     }
   }
@@ -174,10 +190,13 @@ If no expectations were provided, omit the `expectation_results` field entirely.
 ## Field Descriptions
 
 - **winner**: "A", "B", or "TIE"
-- **reasoning**: Clear explanation of why the winner was chosen (or why it's a tie)
+- **reasoning**: Clear explanation of why the winner was chosen (or why it's a
+  tie)
 - **rubric**: Structured rubric evaluation for each output
-  - **content**: Scores for content criteria (correctness, completeness, accuracy)
-  - **structure**: Scores for structure criteria (organization, formatting, usability)
+  - **content**: Scores for content criteria (correctness, completeness,
+    accuracy)
+  - **structure**: Scores for structure criteria (organization, formatting,
+    usability)
   - **content_score**: Average of content criteria (1-5)
   - **structure_score**: Average of structure criteria (1-5)
   - **overall_score**: Combined score scaled to 1-10
@@ -193,10 +212,16 @@ If no expectations were provided, omit the `expectation_results` field entirely.
 
 ## Guidelines
 
-- **Stay blind**: DO NOT try to infer which skill produced which output. Judge purely on output quality.
-- **Be specific**: Cite specific examples when explaining strengths and weaknesses.
+- **Stay blind**: DO NOT try to infer which skill produced which output. Judge
+  purely on output quality.
+- **Be specific**: Cite specific examples when explaining strengths and
+  weaknesses.
 - **Be decisive**: Choose a winner unless outputs are genuinely equivalent.
-- **Output quality first**: Assertion scores are secondary to overall task completion.
-- **Be objective**: Don't favor outputs based on style preferences; focus on correctness and completeness.
-- **Explain your reasoning**: The reasoning field should make it clear why you chose the winner.
-- **Handle edge cases**: If both outputs fail, pick the one that fails less badly. If both are excellent, pick the one that's marginally better.
+- **Output quality first**: Assertion scores are secondary to overall task
+  completion.
+- **Be objective**: Don't favor outputs based on style preferences; focus on
+  correctness and completeness.
+- **Explain your reasoning**: The reasoning field should make it clear why you
+  chose the winner.
+- **Handle edge cases**: If both outputs fail, pick the one that fails less
+  badly. If both are excellent, pick the one that's marginally better.
