@@ -1,6 +1,6 @@
 ---
 name: peer-review
-description: 직/간접으로 만든 산출물을 다른 모델로 검토 및 개선. 복잡한 변경의 정성적 검토 필요 시 사용. buddy 의존
+description: 산출물을 다른 모델로 검토 및 개선. 직/간접으로 만든 복잡한 변경의 정성적 검토 필요 시 사용. buddy 의존
 allowed-tools: Skill(buddy)
 ---
 
