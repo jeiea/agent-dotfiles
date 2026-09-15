@@ -3,6 +3,7 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "jsr:@std/assert@^1";
+import { join, resolve } from "jsr:@std/path@^1";
 import { planClaude } from "./claude.ts";
 import { planCodex } from "./codex.ts";
 import { resolveStateDir, runDelegate } from "./delegate.ts";
@@ -61,15 +62,15 @@ Deno.test("상태 디렉터리는 명시값, XDG, 홈 디렉터리 순서로 선
       XDG_STATE_HOME: "/xdg",
       HOME: "/home/test",
     }),
-    "/explicit",
+    resolve("/explicit"),
   );
   assertEquals(
     resolveStateDir({ XDG_STATE_HOME: "/xdg", HOME: "/home/test" }),
-    "/xdg/delegate",
+    join("/xdg", "delegate"),
   );
   assertEquals(
     resolveStateDir({ HOME: "/home/test" }),
-    "/home/test/.local/state/delegate",
+    join("/home/test", ".local", "state", "delegate"),
   );
 });
 
@@ -103,7 +104,7 @@ Deno.test(
   "프롬프트 파일로 dry-run하면 절대 경로와 내용 식별 정보만 문서에 남는다",
   async () => {
     await using dir = await tempDir();
-    const promptPath = `${dir.path}/prompt.md`;
+    const promptPath = join(dir.path, "prompt.md");
     await Deno.writeTextFile(promptPath, "프론트엔드 화면을 구현하세요.\n");
     const { calls, deps } = testDeps(dir.path, "읽으면 안 됨");
 
@@ -778,7 +779,7 @@ Deno.test("위임 탭에 아직 일하는 다른 실행이 있으면 탭을 닫�
       "--direction",
       "right",
       "--cwd",
-      "/workspace",
+      resolve("/workspace"),
       "--no-focus",
     ],
   );
