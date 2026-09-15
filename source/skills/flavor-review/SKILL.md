@@ -7,7 +7,8 @@ allowed-tools: Skill(peer-review) Skill(commit-flavor)
 # 절차
 
 1. 검토 대상 확정
-   - 미커밋 변경은 `commit-flavor`로 커밋 후 포함
+   - 미커밋 변경을 `commit-flavor`로 커밋 후 포함
+   - 커밋 불필요 시 완료 후 이전 상태로 복원
 2. 다음을 각각 `peer-review` 요청
    - 요청 1: 일반 코드 검토. `peer-review` 기본 기준에 추가
      - 핵심 테스트, 문서 반영
