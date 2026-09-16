@@ -12,7 +12,7 @@
     생략
     - 대화 응답, 문서 본문은 해당 없음
     - 산출물별 지시 우선
-- 스크래치 파일: scratch.local.md
+- 스크래치 파일: scratch-[name].local.md
 - soa memory는 지시 없이 수정 금지
 - 취향이므로 저장소 컨벤션과 별개
 - 툴 호출 JSON의 한글같은 비ASCII는 \uXXXX 이스케이프없이 그대로 작성
