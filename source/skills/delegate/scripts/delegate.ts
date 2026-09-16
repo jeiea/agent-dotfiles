@@ -24,6 +24,7 @@ import {
   DelegateError,
   exitCode,
   type NativeSessionId,
+  normalizeError,
   renderDocument,
 } from "./document.ts";
 import {
@@ -502,14 +503,6 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function normalizeError(error: unknown): DelegateError {
-  if (error instanceof DelegateError) return error;
-  return new DelegateError(
-    "agent_failed",
-    error instanceof Error ? error.message : String(error),
-  );
-}
-
 function success(document: DelegateDocument) {
   return { stdout: renderDocument(document), stderr: "", code: 0 };
 }
@@ -534,6 +527,7 @@ function failure(
         message: error.message,
         ...(error.blockers == null ? {} : { blockers: error.blockers }),
       },
+      ...(error.retry == null ? {} : { retry: error.retry }),
     }),
     stderr,
     code: exitCode(error.code),

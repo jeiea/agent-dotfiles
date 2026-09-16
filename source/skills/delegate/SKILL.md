@@ -80,6 +80,21 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
 
 # 자동 정리와 복구
 
+- 새 관리 탭의 root pane 또는 새로 분할한 관리 pane에서 `agent start`가 정확히
+  `agent target pane <pane-id> is not an available shell`로 실패하면 100ms 뒤
+  같은 시작을 한 번만 재시도
+  - 기존 빈 관리 pane과 다른 시작 오류는 재시도하지 않음
+  - 재시도한 호출의 YAML에는 첫 실패를 `retry.reason`으로, 재시도 단계 결과를
+    `retry.result: success | failed`로 반환
+  - `success`는 start 재시도가 회복됐다는 뜻이며 후속 prompt·session 확인·wait의
+    최종 성공과는 별개. 후속 오류가 생겨도 회복 기록 유지
+  - 100ms 대기 또는 두 번째 시작 중 중단·실패는 `failed`; 최종 원인은 기존
+    최상위 `error`에 반환
+  - 100ms 대기와 두 번째 `agent start --timeout 30000` 실행 시간은 delegate 전체
+    timeout의 엄격한 상한 밖일 수 있음
+  - 현재 Herdr 전용 오류 코드가 없어 정확한 문구로 판별. Herdr가 문구를 바꾸면
+    준비 경합이어도 재시도·`retry` 기록이 생기지 않으며, 전용 구조화 오류 코드나
+    pane 생성의 셸 준비 보장이 제공되면 이 판별 제거
 - 동기 `prompt`·분리 작업 `wait` 성공 시 관리 pane과 빈 관리 탭 자동 정리
   - 수동 프롬프트 여부 무관
   - 대화는 네이티브 JSONL에 남아 다음 `prompt <SESSION_ID>`가 새 pane에서 재개

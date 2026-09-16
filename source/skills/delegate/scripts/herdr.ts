@@ -1,5 +1,14 @@
-import type { Blocker, DelegateDocument, PublicActivity } from "./document.ts";
-import { DelegateError } from "./document.ts";
+import type {
+  Blocker,
+  DelegateDocument,
+  PublicActivity,
+  RetryRecord,
+} from "./document.ts";
+import {
+  copyDelegateError,
+  DelegateError,
+  normalizeError,
+} from "./document.ts";
 import {
   captureBaseline,
   cursorEquals,
@@ -63,6 +72,7 @@ export async function promptHerdr(
 ): Promise<DelegateDocument> {
   const deadline = deps.now() + request.timeoutMs;
   const expected = request.snapshot;
+  let retry: RetryRecord | undefined;
   let live = expected == null ? undefined : await findLiveAgent(expected, deps);
   if (
     live != null && expected != null &&
@@ -98,86 +108,112 @@ export async function promptHerdr(
         "Herdr 신규 session의 caller ID를 확인할 수 없습니다",
       );
     }
-    live = await withSessionError(
+    const started = await withSessionError(
       startAgent(request, callerId, deps),
       expected?.sessionId,
     );
+    live = started.live;
+    retry = started.retry;
   }
 
-  const baseline = await captureBaseline(deps.env, request.invocation.agent);
-  const prompted = await withSessionError(
-    json(live.cwd ?? expected?.cwd ?? request.cwd, deps, [
-      "agent",
-      "prompt",
-      live.name,
-      request.invocation.prompt,
-    ]),
-    expected?.sessionId,
-  );
-  const promptedAgent = objectValue(prompted.agent);
-  if (Object.keys(promptedAgent).length > 0) {
-    live = { ...live, ...liveFrom(promptedAgent, live.name) };
-  }
-  const snapshot = await waitForPrompt(
-    request,
-    baseline,
-    live,
-    deadline,
-    deps,
-  );
-  const deterministic = deterministicName(snapshot.sessionId);
-  if (live.name !== deterministic) {
-    try {
-      await withSessionError(
-        json(snapshot.cwd, deps, [
-          "agent",
-          "rename",
-          live.name,
-          deterministic,
-        ]),
+  try {
+    const baseline = await captureBaseline(deps.env, request.invocation.agent);
+    const prompted = await withSessionError(
+      json(live.cwd ?? expected?.cwd ?? request.cwd, deps, [
+        "agent",
+        "prompt",
+        live.name,
+        request.invocation.prompt,
+      ]),
+      expected?.sessionId,
+    );
+    const promptedAgent = objectValue(prompted.agent);
+    if (Object.keys(promptedAgent).length > 0) {
+      live = { ...live, ...liveFrom(promptedAgent, live.name) };
+    }
+    const snapshot = await waitForPrompt(
+      request,
+      baseline,
+      live,
+      deadline,
+      deps,
+    );
+    const deterministic = deterministicName(snapshot.sessionId);
+    if (live.name !== deterministic) {
+      try {
+        await withSessionError(
+          json(snapshot.cwd, deps, [
+            "agent",
+            "rename",
+            live.name,
+            deterministic,
+          ]),
+          snapshot.sessionId,
+        );
+      } catch (error) {
+        const normalized = normalizeError(error);
+        if (normalized.code === "cancelled" || normalized.code === "timeout") {
+          throw normalized;
+        }
+        throw new DelegateError(
+          "live_session_ambiguous",
+          normalized.message,
+          undefined,
+          normalized.sessionId,
+          normalized.retry,
+        );
+      }
+      live.name = deterministic;
+    }
+    live.sessionId = snapshot.sessionId;
+    live.kind = snapshot.agent;
+    live.cwd = snapshot.cwd;
+
+    if (request.detach) {
+      const current = await withSessionError(
+        getAgent(live, snapshot.cwd, deps),
         snapshot.sessionId,
       );
-    } catch (error) {
-      if (
-        error instanceof DelegateError &&
-        (error.code === "cancelled" || error.code === "timeout")
-      ) throw error;
-      throw new DelegateError(
-        "live_session_ambiguous",
-        error instanceof Error ? error.message : String(error),
+      return document(
+        snapshot,
+        activityOf(current.status),
+        undefined,
+        undefined,
+        retry,
       );
     }
-    live.name = deterministic;
-  }
-  live.sessionId = snapshot.sessionId;
-  live.kind = snapshot.agent;
-  live.cwd = snapshot.cwd;
 
-  if (request.detach) {
-    const current = await withSessionError(
-      getAgent(live, snapshot.cwd, deps),
-      snapshot.sessionId,
+    const offset = baseline.get(snapshot.path)?.byteLength ?? 0;
+    const settled = await waitForQuiescence(snapshot, live, deadline, deps);
+    if (settled.snapshot.agent === "codex" && request.name != null) {
+      await renameCodex(
+        live,
+        callerId,
+        request.name,
+        settled.snapshot.cwd,
+        deps,
+      );
+    }
+    const warnings = await cleanupAutomatically(
+      live,
+      callerId,
+      settled.snapshot.cwd,
+      deps,
     );
-    return document(snapshot, activityOf(current.status));
+    return document(
+      settled.snapshot,
+      "quiescent",
+      resultAfter(settled.snapshot, offset),
+      warnings,
+      retry,
+    );
+  } catch (error) {
+    const normalized = normalizeError(error);
+    throw copyDelegateError(normalized, {
+      sessionId: normalized.sessionId ?? expected?.sessionId,
+      retry: normalized.retry ?? retry,
+    });
   }
-
-  const offset = baseline.get(snapshot.path)?.byteLength ?? 0;
-  const settled = await waitForQuiescence(snapshot, live, deadline, deps);
-  if (settled.snapshot.agent === "codex" && request.name != null) {
-    await renameCodex(live, callerId, request.name, settled.snapshot.cwd, deps);
-  }
-  const warnings = await cleanupAutomatically(
-    live,
-    callerId,
-    settled.snapshot.cwd,
-    deps,
-  );
-  return document(
-    settled.snapshot,
-    "quiescent",
-    resultAfter(settled.snapshot, offset),
-    warnings,
-  );
 }
 
 export async function statusHerdr(
@@ -286,9 +322,9 @@ async function startAgent(
   request: HerdrPrompt,
   callerId: string,
   deps: HerdrDeps,
-): Promise<ManagedPane> {
+): Promise<{ live: ManagedPane; retry?: RetryRecord }> {
   const cwd = request.snapshot?.cwd ?? request.cwd;
-  const pane = await allocatePane(
+  const { created, ...pane } = await allocatePane(
     cwd,
     callerId,
     request.snapshot?.sessionId,
@@ -308,7 +344,7 @@ async function startAgent(
       }`,
     ]
     : request.invocation.herdrArgs;
-  await json(cwd, deps, [
+  const startArgs = [
     "agent",
     "start",
     name,
@@ -320,14 +356,41 @@ async function startAgent(
     "30000",
     "--",
     ...herdrArgs,
-  ]);
+  ];
+  let retry: RetryRecord | undefined;
+  try {
+    await json(cwd, deps, startArgs);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (
+      !created || normalized.code !== "herdr_failed" ||
+      normalized.message !==
+        `agent target pane ${pane.paneId} is not an available shell`
+    ) throw normalized;
+    const reason = {
+      code: "herdr_failed" as const,
+      message: normalized.message,
+    };
+    try {
+      await pause(100, deps, request.snapshot?.sessionId);
+      await json(cwd, deps, startArgs);
+      retry = { reason, result: "success" };
+    } catch (retryError) {
+      throw copyDelegateError(normalizeError(retryError), {
+        retry: { reason, result: "failed" },
+      });
+    }
+  }
   return {
-    ...pane,
-    name,
-    kind: request.invocation.agent,
-    cwd,
-    status: "unknown",
-    sessionId: request.snapshot?.sessionId,
+    live: {
+      ...pane,
+      name,
+      kind: request.invocation.agent,
+      cwd,
+      status: "unknown",
+      sessionId: request.snapshot?.sessionId,
+    },
+    retry,
   };
 }
 
@@ -532,7 +595,11 @@ async function allocatePane(
   callerId: string,
   sessionId: string | undefined,
   deps: HerdrDeps,
-): Promise<Pick<ManagedPane, "workspaceId" | "tabId" | "paneId" | "callerId">> {
+): Promise<
+  Pick<ManagedPane, "workspaceId" | "tabId" | "paneId" | "callerId"> & {
+    created: boolean;
+  }
+> {
   let currentResult: HerdrResult;
   try {
     currentResult = await json(cwd, deps, ["pane", "current", "--current"]);
@@ -597,7 +664,7 @@ async function allocatePane(
         "생성한 관리 탭 소유권을 확인하지 못했습니다",
       );
     }
-    return { workspaceId, tabId, paneId, callerId };
+    return { workspaceId, tabId, paneId, callerId, created: true };
   }
   const tabId = candidates[0]!.tabId;
   const panes = (await listPanes(workspaceId, cwd, deps)).filter((pane) =>
@@ -605,7 +672,13 @@ async function allocatePane(
   );
   const available = panes.find((pane) => pane.agentName == null);
   if (available != null) {
-    return { workspaceId, tabId, paneId: available.paneId, callerId };
+    return {
+      workspaceId,
+      tabId,
+      paneId: available.paneId,
+      callerId,
+      created: false,
+    };
   }
   const anchor = panes.at(-1)?.paneId;
   if (anchor == null) {
@@ -626,7 +699,7 @@ async function allocatePane(
   if (paneId == null) {
     throw new DelegateError("herdr_failed", "pane 분할 응답이 불완전합니다");
   }
-  return { workspaceId, tabId, paneId, callerId };
+  return { workspaceId, tabId, paneId, callerId, created: true };
 }
 
 async function cleanupAutomatically(
@@ -877,6 +950,7 @@ function document(
   activity: PublicActivity,
   result?: string,
   warnings?: CleanupWarning[],
+  retry?: RetryRecord,
 ): DelegateDocument {
   return {
     session_id: snapshot.sessionId,
@@ -885,6 +959,7 @@ function document(
     completed_turns: snapshot.completedTurns,
     ...(result == null ? {} : { result }),
     ...(warnings == null || warnings.length === 0 ? {} : { warnings }),
+    ...(retry == null ? {} : { retry }),
   };
 }
 
@@ -988,18 +1063,10 @@ async function withSessionError<T>(
   try {
     return await operation;
   } catch (error) {
-    if (
-      sessionId != null && error instanceof DelegateError &&
-      error.sessionId == null
-    ) {
-      throw new DelegateError(
-        error.code,
-        error.message,
-        error.blockers,
-        sessionId,
-      );
-    }
-    throw error;
+    const normalized = normalizeError(error);
+    throw copyDelegateError(normalized, {
+      sessionId: normalized.sessionId ?? sessionId,
+    });
   }
 }
 

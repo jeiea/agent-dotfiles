@@ -46,6 +46,14 @@ export type Blocker = {
   status: "working" | "blocked" | "unknown";
 };
 
+export type RetryRecord = {
+  reason: {
+    code: "herdr_failed";
+    message: string;
+  };
+  result: "success" | "failed";
+};
+
 export type DelegateDocument = {
   session_id?: NativeSessionId;
   agent?: "codex" | "claude";
@@ -62,6 +70,7 @@ export type DelegateDocument = {
     message: string;
     blockers?: Blocker[];
   }>;
+  retry?: RetryRecord;
 };
 
 export class DelegateError extends Error {
@@ -70,9 +79,31 @@ export class DelegateError extends Error {
     message: string,
     readonly blockers?: Blocker[],
     readonly sessionId?: string,
+    readonly retry?: RetryRecord,
   ) {
     super(message);
   }
+}
+
+export function normalizeError(error: unknown): DelegateError {
+  if (error instanceof DelegateError) return error;
+  return new DelegateError(
+    "agent_failed",
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+export function copyDelegateError(
+  error: DelegateError,
+  overrides: { sessionId?: string; retry?: RetryRecord },
+): DelegateError {
+  return new DelegateError(
+    error.code,
+    error.message,
+    error.blockers,
+    overrides.sessionId ?? error.sessionId,
+    overrides.retry ?? error.retry,
+  );
 }
 
 export function exitCode(code: PublicErrorCode): number {

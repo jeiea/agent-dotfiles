@@ -168,6 +168,14 @@ function herdr(
   return { cmd: "herdr", stdout: JSON.stringify({ result }), ...extra };
 }
 
+function herdrFailure(message: string): FakeResponse {
+  return {
+    cmd: "herdr",
+    code: 1,
+    stderr: JSON.stringify({ error: { code: "herdr_failed", message } }),
+  };
+}
+
 function liveAgent(status: string, sequence: number) {
   return {
     name: `dlg-${codexId.replaceAll("-", "").slice(0, 28)}`,
@@ -262,6 +270,7 @@ Deno.test("사용자가 새 작업을 detach하고 상태 확인·wait·logs·cl
   assertEquals(detached.code, 0);
   assertStringIncludes(detached.stdout, `session_id: ${codexId}`);
   assertStringIncludes(detached.stdout, "activity: working");
+  assertEquals(detached.stdout.includes("retry:"), false);
   assertEquals(
     start.fake.calls.find((call) => call.args[1] === "prompt")?.args[3],
     firstPrompt,
@@ -584,6 +593,438 @@ Deno.test("사용자가 종료된 Herdr session을 확인 후 write로 재개하
   assertStringIncludes(rejected.stdout, "code: session_id_changed");
   assertStringIncludes(rejected.stdout, codexId);
   assertStringIncludes(rejected.stdout, changedId);
+});
+
+Deno.test("새 작업의 관리 pane 셸이 늦게 준비되어도 다시 시작해 결과와 회복 기록을 반환한다", async () => {
+  for (
+    const scenario of [
+      { allocation: "root", detach: true },
+      { allocation: "split", detach: false },
+    ] as const
+  ) {
+    await using dir = await tempDir();
+    const path = codexPath(dir.path);
+    const shellError =
+      `agent target pane pane-delegate is not an available shell`;
+    const sleeps: number[] = [];
+    let now = 0;
+    const allocation = scenario.allocation === "root"
+      ? [
+        herdr({ tabs: [] }),
+        herdr({
+          tab: { tab_id: "tab-delegate" },
+          root_pane: { pane_id: "pane-delegate" },
+        }),
+        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      ]
+      : [
+        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+        herdr({
+          panes: [{
+            pane_id: "pane-anchor",
+            tab_id: "tab-delegate",
+            agent: "busy",
+            agent_status: "working",
+          }],
+        }),
+        herdr({ pane: { pane_id: "pane-delegate" } }),
+      ];
+    const afterPrompt = scenario.detach
+      ? [herdr({ agent: liveAgent("working", 1) })]
+      : [
+        herdr({ agent: liveAgent("done", 2) }),
+        herdr({ agent: liveAgent("done", 2) }),
+        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+        herdr({
+          panes: [{
+            pane_id: "pane-delegate",
+            tab_id: "tab-delegate",
+            agent: liveAgent("done", 2).name,
+            agent_status: "done",
+          }],
+        }),
+        herdr({}),
+        herdr({}),
+      ];
+    const test = setup(dir.path, "작업", [
+      herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+      ...allocation,
+      herdrFailure(shellError),
+      herdr({}),
+      herdr({}, {
+        onStart: () =>
+          writeJsonl(path, [
+            codexMeta(),
+            ...codexTurn("retry", `${prefix}작업`, "회복 결과"),
+          ]),
+      }),
+      herdr({}),
+      ...afterPrompt,
+    ], {
+      env: { HERDR_ENV: "1" },
+      now: () => now,
+      sleep: (ms) => {
+        now += ms;
+        sleeps.push(ms);
+        return Promise.resolve();
+      },
+    });
+
+    const result = await runDelegate([
+      "prompt",
+      "--agent",
+      "codex",
+      "--caller-id",
+      "caller",
+      ...(scenario.detach ? ["--detach"] : []),
+    ], test.deps);
+
+    assertEquals(result.code, 0, scenario.allocation);
+    assertStringIncludes(
+      result.stdout,
+      `retry:\n  reason:\n    code: herdr_failed\n    message: ${shellError}\n  result: success`,
+    );
+    if (!scenario.detach) assertStringIncludes(result.stdout, "회복 결과");
+    const starts = test.fake.calls.filter((call) => call.args[1] === "start");
+    assertEquals(starts.length, 2);
+    assertEquals(starts[0]?.args, starts[1]?.args);
+    assertEquals(sleeps[0], 100);
+    assertEquals(
+      test.fake.calls.findIndex((call) => call.args[1] === "prompt") >
+        test.fake.calls.findLastIndex((call) => call.args[1] === "start"),
+      true,
+    );
+  }
+});
+
+Deno.test("중단된 작업의 관리 pane 셸이 늦게 준비되어도 다시 시작해 재개 결과와 회복 기록을 반환한다", async () => {
+  for (const retrySucceeds of [true, false]) {
+    await using dir = await tempDir();
+    const path = codexPath(dir.path);
+    writeJsonl(path, [codexMeta(), ...codexTurn("old", "이전", "완료")]);
+    const shellError =
+      `agent target pane pane-delegate is not an available shell`;
+    const responses: FakeResponse[] = [
+      herdr({ agents: [] }),
+      herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+      herdr({ tabs: [] }),
+      herdr({
+        tab: { tab_id: "tab-delegate" },
+        root_pane: { pane_id: "pane-delegate" },
+      }),
+      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      herdrFailure(shellError),
+      retrySucceeds ? herdr({}) : herdrFailure("retry refused"),
+    ];
+    if (retrySucceeds) {
+      responses.push(
+        herdr({}, {
+          onStart: () =>
+            appendJsonl(
+              path,
+              codexTurn("resumed", `${prefix}수정`, "재개 결과"),
+            ),
+        }),
+        herdr({ agent_status: "done", state_change_seq: 2 }),
+        herdr({ agent: { agent_status: "done", state_change_seq: 2 } }),
+        herdr({ agent_status: "done", state_change_seq: 2 }),
+        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+        herdr({
+          panes: [{
+            pane_id: "pane-delegate",
+            tab_id: "tab-delegate",
+            agent: liveAgent("done", 2).name,
+            agent_status: "done",
+          }],
+        }),
+        herdr({}),
+        herdr({}),
+      );
+    }
+    const test = setup(dir.path, "수정", responses, {
+      env: { HERDR_ENV: "1" },
+      now: () => 0,
+      sleep: () => Promise.resolve(),
+    });
+
+    const result = await runDelegate([
+      "prompt",
+      codexId,
+      "--caller-id",
+      "caller",
+    ], test.deps);
+
+    assertStringIncludes(result.stdout, `session_id: ${codexId}`);
+    assertStringIncludes(result.stdout, `message: ${shellError}`);
+    assertStringIncludes(
+      result.stdout,
+      `result: ${retrySucceeds ? "success" : "failed"}`,
+    );
+    if (retrySucceeds) {
+      assertEquals(result.code, 0);
+      assertStringIncludes(result.stdout, "재개 결과");
+    } else {
+      assertEquals(result.code, 5);
+      assertStringIncludes(result.stdout, "message: retry refused");
+    }
+    const start = test.fake.calls.filter((call) => call.args[1] === "start");
+    assertEquals(start.length, 2);
+    assertEquals(start[0]?.args[2], liveAgent("done", 2).name);
+  }
+});
+
+Deno.test("기존 관리 pane이나 다른 이유로 시작이 거부되면 곧바로 원인을 반환한다", async () => {
+  for (
+    const scenario of [
+      {
+        existing: true,
+        message: "agent target pane pane-delegate is not an available shell",
+      },
+      { existing: false, message: "agent start refused" },
+    ]
+  ) {
+    await using dir = await tempDir();
+    const allocation = scenario.existing
+      ? [
+        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+        herdr({
+          panes: [{
+            pane_id: "pane-delegate",
+            tab_id: "tab-delegate",
+            agent: null,
+          }],
+        }),
+      ]
+      : [
+        herdr({ tabs: [] }),
+        herdr({
+          tab: { tab_id: "tab-delegate" },
+          root_pane: { pane_id: "pane-delegate" },
+        }),
+        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      ];
+    let sleeps = 0;
+    const test = setup(dir.path, "작업", [
+      herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+      ...allocation,
+      herdrFailure(scenario.message),
+    ], {
+      env: { HERDR_ENV: "1" },
+      sleep: () => {
+        sleeps++;
+        return Promise.resolve();
+      },
+    });
+
+    const result = await runDelegate([
+      "prompt",
+      "--agent",
+      "codex",
+      "--caller-id",
+      "caller",
+    ], test.deps);
+
+    assertEquals(result.code, 5);
+    assertStringIncludes(result.stdout, `message: ${scenario.message}`);
+    assertEquals(result.stdout.includes("retry:"), false);
+    assertEquals(sleeps, 0);
+    assertEquals(
+      test.fake.calls.filter((call) => call.args[1] === "start").length,
+      1,
+    );
+  }
+});
+
+Deno.test("관리 pane 셸을 다시 시작하지 못하면 마지막 상태와 실패 기록을 반환한다", async () => {
+  for (
+    const scenario of [
+      { name: "같은 오류", second: "shell", cancel: "none" },
+      { name: "다른 오류", second: "other", cancel: "none" },
+      { name: "대기 중 취소", second: "none", cancel: "sleep" },
+      { name: "두 번째 시작 중 취소", second: "cancel", cancel: "start" },
+    ] as const
+  ) {
+    await using dir = await tempDir();
+    const controller = new AbortController();
+    const shellError =
+      `agent target pane pane-delegate is not an available shell`;
+    const responses: FakeResponse[] = [
+      herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+      herdr({ tabs: [] }),
+      herdr({
+        tab: { tab_id: "tab-delegate" },
+        root_pane: { pane_id: "pane-delegate" },
+      }),
+      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      herdrFailure(shellError),
+    ];
+    if (scenario.second === "shell") responses.push(herdrFailure(shellError));
+    if (scenario.second === "other") {
+      responses.push(herdrFailure("retry refused"));
+    }
+    if (scenario.second === "cancel") {
+      responses.push({
+        cmd: "herdr",
+        waitForAbort: true,
+        onStart: () => controller.abort(),
+      });
+    }
+    let sleeps = 0;
+    const test = setup(dir.path, "작업", responses, {
+      env: { HERDR_ENV: "1" },
+      signal: controller.signal,
+      sleep: () => {
+        sleeps++;
+        if (scenario.cancel === "sleep") {
+          controller.abort();
+          return Promise.reject(new DOMException("Aborted", "AbortError"));
+        }
+        return Promise.resolve();
+      },
+    });
+
+    const result = await runDelegate([
+      "prompt",
+      "--agent",
+      "codex",
+      "--caller-id",
+      "caller",
+    ], test.deps);
+
+    assertEquals(
+      result.code,
+      scenario.cancel === "none" ? 5 : 130,
+      scenario.name,
+    );
+    assertStringIncludes(result.stdout, "result: failed");
+    assertStringIncludes(result.stdout, `message: ${shellError}`);
+    if (scenario.second === "other") {
+      assertStringIncludes(result.stdout, "message: retry refused");
+    }
+    if (scenario.cancel !== "none") {
+      assertStringIncludes(result.stdout, "code: cancelled");
+    }
+    assertEquals(sleeps, 1);
+    assertEquals(
+      test.fake.calls.filter((call) => call.args[1] === "start").length,
+      scenario.cancel === "sleep" ? 1 : 2,
+    );
+  }
+});
+
+Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회복 기록을 반환한다", async () => {
+  for (
+    const failure of ["prompt", "session", "wait", "blocked", "raw"] as const
+  ) {
+    await using dir = await tempDir();
+    const path = codexPath(dir.path);
+    const shellError =
+      `agent target pane pane-delegate is not an available shell`;
+    let sleepCalls = 0;
+    const afterRetry: FakeResponse[] = failure === "prompt"
+      ? [herdrFailure("prompt refused")]
+      : failure === "session"
+      ? [
+        herdr({
+          agent: {
+            agent_session: {
+              value: "11111111-2222-3333-4444-555555555555",
+            },
+            cwd: "/different-workspace",
+          },
+        }, {
+          onStart: () =>
+            writeJsonl(
+              codexPath(
+                dir.path,
+                "11111111-2222-3333-4444-555555555555",
+              ),
+              [
+                codexMeta(
+                  "11111111-2222-3333-4444-555555555555",
+                  "/different-workspace",
+                ),
+                ...codexTurn("retry", `${prefix}작업`),
+              ],
+            ),
+        }),
+      ]
+      : [
+        herdr({}, {
+          onStart: () => {
+            if (failure !== "raw") {
+              writeJsonl(path, [
+                codexMeta(),
+                ...codexTurn("retry", `${prefix}작업`),
+              ]);
+            }
+          },
+        }),
+        ...(failure === "wait"
+          ? [herdr({}), herdrFailure("wait refused")]
+          : failure === "blocked"
+          ? [herdr({}), herdr({ agent: liveAgent("blocked", 2) })]
+          : failure === "raw"
+          ? []
+          : []),
+      ];
+    const test = setup(dir.path, "작업", [
+      herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+      herdr({ tabs: [] }),
+      herdr({
+        tab: { tab_id: "tab-delegate" },
+        root_pane: { pane_id: "pane-delegate" },
+      }),
+      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      herdrFailure(shellError),
+      herdr({}),
+      ...afterRetry,
+    ], {
+      env: { HERDR_ENV: "1" },
+      now: () => 0,
+      sleep: (_ms) => {
+        sleepCalls++;
+        if (failure === "raw" && sleepCalls === 2) {
+          throw new Error("session lookup exploded");
+        }
+        return Promise.resolve();
+      },
+    });
+
+    const result = await runDelegate([
+      "prompt",
+      "--agent",
+      "codex",
+      "--caller-id",
+      "caller",
+      "--timeout",
+      "1ms",
+    ], test.deps);
+
+    assertEquals(result.code === 0, false, failure);
+    assertStringIncludes(result.stdout, "result: success");
+    assertStringIncludes(result.stdout, `message: ${shellError}`);
+    if (failure === "blocked") {
+      assertStringIncludes(result.stdout, "code: agent_blocked");
+      assertStringIncludes(result.stdout, "activity: blocked");
+    }
+    if (failure === "raw" || failure === "session") {
+      assertStringIncludes(
+        result.stdout,
+        `code: ${
+          failure === "raw" ? "agent_failed" : "invalid_native_session"
+        }`,
+      );
+    }
+    if (failure === "raw") {
+      assertEquals(
+        test.fake.calls.filter((call) =>
+          call.args[0] === "agent" && call.args[1] === "prompt"
+        ).length,
+        1,
+      );
+    }
+  }
 });
 
 Deno.test("Herdr gate와 정숙 판정은 deadline을 공유하고 중단 시 확인된 session ID를 보존한다", async () => {
