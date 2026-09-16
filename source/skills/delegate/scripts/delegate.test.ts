@@ -1518,6 +1518,42 @@ Deno.test("직접 실행의 spawn 실패·timeout·사용자 중단은 공개 �
   assertStringIncludes(interrupted.stdout, codexId);
 });
 
+Deno.test("Windows에서 HOME과 사용자 프로필이 달라도 사용자는 기본 프로필의 native session 상태를 확인한다", async () => {
+  await using dir = await tempDir();
+  const home = join(dir.path, "home");
+  const profile = join(dir.path, "profile");
+  const path = join(
+    profile,
+    ".codex",
+    "sessions",
+    "2026",
+    "09",
+    "16",
+    `rollout-anon-${codexId}.jsonl`,
+  );
+  writeJsonl(path, [
+    codexMeta(),
+    ...codexTurn("turn-1", "사람 요청", "최종 답변"),
+  ]);
+  const base = setup(dir.path, "");
+  const env: Record<string, string> = {
+    ...base.deps.env,
+    OS: "Windows_NT",
+    HOME: home,
+    USERPROFILE: profile,
+  };
+  delete env.CODEX_HOME;
+
+  const result = await runDelegate(["status", codexId], {
+    ...base.deps,
+    env,
+  });
+
+  assertEquals(result.code, 0);
+  assertStringIncludes(result.stdout, `session_id: ${codexId}`);
+  assertStringIncludes(result.stdout, "agent: codex");
+});
+
 Deno.test("코덱스 native fixture는 bootstrap·도구·중단 turn을 제외하고 완료 대화와 부분 record 상태를 보존한다", async () => {
   await using dir = await tempDir();
   writeJsonl(codexPath(dir.path), [
@@ -1527,7 +1563,12 @@ Deno.test("코덱스 native fixture는 bootstrap·도구·중단 turn을 제외�
   ], '{"type":"response_item"');
   const snapshot = await findNativeSession(
     codexId,
-    setup(dir.path, "").deps.env,
+    setup(dir.path, "", [], {
+      env: {
+        OS: "Windows_NT",
+        USERPROFILE: join(dir.path, "other-profile"),
+      },
+    }).deps.env,
   );
   assertEquals(snapshot.cursor.partial, true);
   assertEquals(snapshot.completedTurns, [{

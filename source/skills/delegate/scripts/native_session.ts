@@ -353,8 +353,11 @@ async function listCandidates(
   const home = env.HOME;
   const roots: Array<{ agent: Agent; root: string; search: string }> = [];
   if (onlyAgent == null || onlyAgent === "codex") {
+    const defaultHome = env.OS === "Windows_NT"
+      ? env.USERPROFILE ?? home
+      : home;
     const root = env.CODEX_HOME ??
-      (home == null ? undefined : join(home, ".codex"));
+      (defaultHome == null ? undefined : join(defaultHome, ".codex"));
     if (root != null) {
       roots.push({ agent: "codex", root, search: join(root, "sessions") });
     }
