@@ -1300,6 +1300,168 @@ Deno.test("자동 cleanup은 다른 active pane을 모두 보고하고 target pa
   assertEquals(test.fake.calls.some((call) => call.args[1] === "close"), false);
 });
 
+Deno.test("완료된 작업의 마지막 관리 pane을 닫으며 탭이 함께 사라져도 정리 경고 없이 결과를 반환한다", async () => {
+  await using dir = await tempDir();
+  const path = codexPath(dir.path);
+  let now = 0;
+  const test = setup(dir.path, "작업", [
+    herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+    herdr({ tabs: [] }),
+    herdr({
+      tab: { tab_id: "tab-delegate" },
+      root_pane: { pane_id: "pane-delegate" },
+    }),
+    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+    herdr({}),
+    herdr({}, {
+      onStart: () =>
+        writeJsonl(path, [
+          codexMeta(),
+          ...codexTurn("t", `${prefix}작업`, "완료"),
+        ]),
+    }),
+    herdr({}),
+    herdr({ agent: liveAgent("done", 2) }),
+    herdr({ agent: liveAgent("done", 2) }),
+    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+    herdr({
+      panes: [{
+        pane_id: "pane-delegate",
+        tab_id: "tab-delegate",
+        agent: liveAgent("done", 2).name,
+        agent_status: "done",
+      }],
+    }),
+    herdr({}),
+    herdr({}, {
+      code: 1,
+      stderr: JSON.stringify({
+        error: {
+          code: "herdr_failed",
+          message: "tab tab-delegate not found",
+        },
+      }),
+    }),
+  ], {
+    env: { HERDR_ENV: "1" },
+    now: () => now,
+    sleep: (ms) => {
+      now += ms;
+      return Promise.resolve();
+    },
+  });
+  const result = await runDelegate([
+    "prompt",
+    "--agent",
+    "codex",
+    "--caller-id",
+    "caller",
+  ], test.deps);
+  assertEquals(result.code, 0);
+  assertStringIncludes(result.stdout, "result: 완료");
+  assertEquals(result.stdout.includes("warnings:"), false);
+  assertEquals(
+    test.fake.calls.slice(-2).map((call) => call.args),
+    [["pane", "close", "pane-delegate"], ["tab", "close", "tab-delegate"]],
+  );
+});
+
+Deno.test("완료된 작업의 자동 정리가 실패하면 cleanup_failed 경고와 원인을 남긴다", async () => {
+  const scenarios = [{
+    name: "pane close 실패",
+    closeResponses: [
+      herdr({}, {
+        code: 1,
+        stderr: JSON.stringify({
+          error: { code: "herdr_failed", message: "pane close refused" },
+        }),
+      }),
+    ],
+    cause: "pane close refused",
+    closeCalls: [["pane", "close", "pane-delegate"]],
+  }, {
+    name: "tab close 다른 실패",
+    closeResponses: [
+      herdr({}),
+      herdr({}, {
+        code: 1,
+        stderr: JSON.stringify({
+          error: {
+            code: "herdr_failed",
+            message: "tab tab-delegate has active panes",
+          },
+        }),
+      }),
+    ],
+    cause: "tab tab-delegate has active panes",
+    closeCalls: [
+      ["pane", "close", "pane-delegate"],
+      ["tab", "close", "tab-delegate"],
+    ],
+  }];
+
+  for (const scenario of scenarios) {
+    await using dir = await tempDir();
+    const path = codexPath(dir.path);
+    let now = 0;
+    const test = setup(dir.path, "작업", [
+      herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+      herdr({ tabs: [] }),
+      herdr({
+        tab: { tab_id: "tab-delegate" },
+        root_pane: { pane_id: "pane-delegate" },
+      }),
+      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      herdr({}),
+      herdr({}, {
+        onStart: () =>
+          writeJsonl(path, [
+            codexMeta(),
+            ...codexTurn("t", `${prefix}작업`, "완료"),
+          ]),
+      }),
+      herdr({}),
+      herdr({ agent: liveAgent("done", 2) }),
+      herdr({ agent: liveAgent("done", 2) }),
+      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+      herdr({
+        panes: [{
+          pane_id: "pane-delegate",
+          tab_id: "tab-delegate",
+          agent: liveAgent("done", 2).name,
+          agent_status: "done",
+        }],
+      }),
+      ...scenario.closeResponses,
+    ], {
+      env: { HERDR_ENV: "1" },
+      now: () => now,
+      sleep: (ms) => {
+        now += ms;
+        return Promise.resolve();
+      },
+    });
+    const result = await runDelegate([
+      "prompt",
+      "--agent",
+      "codex",
+      "--caller-id",
+      "caller",
+    ], test.deps);
+    assertEquals(result.code, 0, scenario.name);
+    assertStringIncludes(result.stdout, "result: 완료", scenario.name);
+    assertStringIncludes(result.stdout, "code: cleanup_failed", scenario.name);
+    assertStringIncludes(result.stdout, scenario.cause, scenario.name);
+    assertEquals(
+      test.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
+        call.args
+      ),
+      scenario.closeCalls,
+      scenario.name,
+    );
+  }
+});
+
 Deno.test("live session의 시작 옵션은 writer를 건드리기 전에 충돌로 거부하고 stopped write는 확인을 요구한다", async () => {
   await using dir = await tempDir();
   writeJsonl(codexPath(dir.path), [codexMeta(), ...codexTurn("old", "old")]);

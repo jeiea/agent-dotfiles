@@ -660,7 +660,15 @@ async function cleanupAutomatically(
     }
     await closePane(live.paneId, cwd, deps);
     if (panes.filter((pane) => pane.tabId === live.tabId).length === 1) {
-      await closeTab(live.tabId, cwd, deps);
+      try {
+        await closeTab(live.tabId, cwd, deps);
+      } catch (error) {
+        if (
+          !(error instanceof DelegateError &&
+            error.code === "cleanup_failed" &&
+            error.message === `tab ${live.tabId} not found`)
+        ) throw error;
+      }
     }
     return undefined;
   } catch (error) {
