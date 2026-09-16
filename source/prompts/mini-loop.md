@@ -23,7 +23,7 @@ allowed-tools: Skill(delegate) Skill(peer-review) Skill(flavor-review) Skill(cod
 2. 코드 구현 계획이면 다음 기준으로 peer-review
    - code-flavor의 ponytail스러운 최소안이 맞는지
 3. 조율자와 같은 모델의 구현자에게 계획 파일 구현과 테스트·린트·정적 검사 요청
-4. flavor-review로 계획과 구현 결과 검토
+4. commit-flavor 후 flavor-review로 계획과 구현 결과 검토
    - 일반 검토 요청 기준에 기존 계획과의 정합성 추가
    - 결함과 코드량을 늘리지 않는 정리만 반영, 나머지는 제안 목록으로
      - 결함: 요구 위반, 계획 불일치, 변경으로 생긴 보안 취약점, 발생 가능성이
