@@ -24,7 +24,10 @@ description: jsr 문서 확인 방법, 신규 프로젝트 템플릿, 로컬 의
 
 # 상황별 선호 패키지
 
-- `jsr:@jeiea/snippets`: runGitCommand
+- `jsr:@jeiea/snippets`
+  - 깃 명령: `runGit`, `runGitOrThrow`
+  - `cwd`로 다른 저장소에서 명령 실행: `runInForeignRepository`
+  - 자동 정리 임시 디렉터리: `createTempDir`
 - `jsr:@optique/run`, `jsr:@optique/core`: CLI 파서 라이브러리, @std/cli 대신
   사용
 

@@ -1,7 +1,7 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@jeiea/snippets@~0.1.1": "0.1.1",
+    "jsr:@jeiea/snippets@0.2": "0.2.0",
     "jsr:@optique/core@^1.2.0": "1.2.6",
     "jsr:@optique/core@^1.2.6": "1.2.6",
     "jsr:@optique/run@^1.2.0": "1.2.6",
@@ -21,8 +21,8 @@
     "npm:turndown@^7.2.2": "7.2.4"
   },
   "jsr": {
-    "@jeiea/snippets@0.1.1": {
-      "integrity": "6d6b5743ec7277e767626653c5200e7df18ba164a2d6fb1e1cb8dde9671013f6"
+    "@jeiea/snippets@0.2.0": {
+      "integrity": "f11114ea0e8e3470361eb970719173b7914c95c7988b211b3745eaa2670a24c8"
     },
     "@optique/core@1.2.6": {
       "integrity": "1fb341cefd6f3594cbd84ed4f60f874279746bbea5441f0c529364db450cd501"

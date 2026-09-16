@@ -1,25 +1,19 @@
 import {
   assert,
+  assertEquals,
   assertRejects,
   assertStringIncludes,
 } from "jsr:@std/assert@^1";
+import { createTempDir } from "jsr:@jeiea/snippets@^0.2.0";
 import { getBranchChangesText } from "./get_branch_changes.ts";
 import { runGitCommand } from "./git_commands.ts";
 import { runJjCommand } from "./jj_commands.ts";
 
-async function createTempRepo(prefix: string) {
-  const path = await Deno.makeTempDir({ prefix });
-  return {
-    path,
-    async [Symbol.asyncDispose]() {
-      await Deno.remove(path, { recursive: true });
-    },
-  };
-}
-
 Deno.test("getBranchChangesText - diff --stat shows changed files", async () => {
-  await using repo = await createTempRepo("get-pr-changes-test-");
-  await using origin = await createTempRepo("get-pr-changes-origin-");
+  await using repo = await createTempDir({ prefix: "get-pr-changes-test-" });
+  await using origin = await createTempDir({
+    prefix: "get-pr-changes-origin-",
+  });
 
   const git = (cwd: string, ...args: string[]) => runGitCommand(args, cwd);
 
@@ -50,10 +44,19 @@ Deno.test("getBranchChangesText - diff --stat shows changed files", async () => 
   assertStringIncludes(result, "insertion");
 });
 
-Deno.test("getBranchChangesText - jj repo shows changed files", async () => {
-  await using repo = await createTempRepo("get-pr-changes-jj-test-");
+Deno.test("jj changes are reported without modifying a hook's index", async () => {
+  await using repo = await createTempDir({ prefix: "get-pr-changes-jj-test-" });
+  await using hookRepo = await createTempDir({
+    prefix: "get-pr-changes-hook-test-",
+  });
 
+  const git = (cwd: string, ...args: string[]) => runGitCommand(args, cwd);
   const jj = (...args: string[]) => runJjCommand(args, repo.path);
+
+  await git(hookRepo.path, "init", "-b", "main");
+  await Deno.writeTextFile(`${hookRepo.path}/sentinel.txt`, "hook index\n");
+  await git(hookRepo.path, "add", "sentinel.txt");
+  using _envGuard = setEnv({ GIT_INDEX_FILE: `${hookRepo.path}/.git/index` });
 
   await jj("git", "init");
   await jj("bookmark", "create", "main", "-r", "@");
@@ -67,10 +70,13 @@ Deno.test("getBranchChangesText - jj repo shows changed files", async () => {
   assertStringIncludes(result, "feature");
   assertStringIncludes(result, "foo.ts");
   assertStringIncludes(result, "insertion");
+  assertEquals(await git(hookRepo.path, "ls-files"), "sentinel.txt");
 });
 
 Deno.test("getBranchChangesText - jj diff uses fork point when base advanced", async () => {
-  await using repo = await createTempRepo("get-pr-changes-jj-advanced-base-");
+  await using repo = await createTempDir({
+    prefix: "get-pr-changes-jj-advanced-base-",
+  });
 
   const git = (...args: string[]) => runGitCommand(args, repo.path);
   const jj = (...args: string[]) => runJjCommand(args, repo.path);
@@ -102,7 +108,9 @@ Deno.test("getBranchChangesText - jj diff uses fork point when base advanced", a
 });
 
 Deno.test("getBranchChangesText - jj fails clearly when base is missing", async () => {
-  await using repo = await createTempRepo("get-pr-changes-jj-missing-base-");
+  await using repo = await createTempDir({
+    prefix: "get-pr-changes-jj-missing-base-",
+  });
 
   const jj = (...args: string[]) => runJjCommand(args, repo.path);
 
@@ -114,3 +122,19 @@ Deno.test("getBranchChangesText - jj fails clearly when base is missing", async 
     "jj base revision not found or ambiguous: missing",
   );
 });
+
+function setEnv(vars: Record<string, string>): Disposable {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(vars)) {
+    previous.set(key, Deno.env.get(key));
+    Deno.env.set(key, value);
+  }
+  return {
+    [Symbol.dispose]() {
+      for (const [key, value] of previous) {
+        if (value === undefined) Deno.env.delete(key);
+        else Deno.env.set(key, value);
+      }
+    },
+  };
+}

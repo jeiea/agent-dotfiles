@@ -1,7 +1,9 @@
-import { runGitOrThrow } from "jsr:@jeiea/snippets@^0.1.1";
+import { runGitOrThrow } from "jsr:@jeiea/snippets@^0.2.0";
 
 export async function runGitCommand(args: string[], cwd: string) {
-  const { stdout } = await runGitOrThrow(["-C", cwd, ...args], { env: { LC_ALL: "C" } });
+  const { stdout } = await runGitOrThrow(["-C", cwd, ...args], {
+    env: { LC_ALL: "C" },
+  });
   return stdout.trimEnd();
 }
 
