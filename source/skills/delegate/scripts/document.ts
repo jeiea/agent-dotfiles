@@ -15,7 +15,6 @@ export type PublicErrorCode =
   | "usage"
   | "invalid_session_id"
   | "live_option_conflict"
-  | "detach_requires_herdr"
   | "permission_escalation"
   | "transport_unavailable"
   | "caller_session_unavailable"
@@ -109,7 +108,7 @@ export function copyDelegateError(
 export function exitCode(code: PublicErrorCode): number {
   if (
     code === "usage" || code === "invalid_session_id" ||
-    code === "live_option_conflict" || code === "detach_requires_herdr"
+    code === "live_option_conflict"
   ) return 2;
   if (
     code === "transport_unavailable" ||

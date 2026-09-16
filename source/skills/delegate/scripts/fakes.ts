@@ -11,7 +11,7 @@ export type FakeCall = {
 export type FakeResponse = Partial<ExecResult> & {
   cmd: string;
   waitForAbort?: boolean;
-  onStart?: () => void;
+  onStart?: () => void | Promise<void>;
 };
 
 export function fakeExec(responses: readonly FakeResponse[]): {
@@ -33,7 +33,7 @@ export function fakeExec(responses: readonly FakeResponse[]): {
     if (response.cmd !== cmd) {
       throw new Error(`예상한 실행 ${response.cmd}, 실제 ${cmd}`);
     }
-    response.onStart?.();
+    await response.onStart?.();
     if (response.waitForAbort) {
       if (!options.signal?.aborted) {
         await new Promise<void>((resolve) =>

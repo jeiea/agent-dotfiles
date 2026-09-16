@@ -74,7 +74,6 @@ type PromptOptions = {
   callerId?: string;
   name?: string;
   timeoutMs: number;
-  detach: boolean;
   confirmEscalation: boolean;
 };
 
@@ -152,7 +151,6 @@ function parser() {
         callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
         name: optional(option("--name", string({ metavar: "NAME" }))),
         timeoutMs: withDefault(option("--timeout", duration), 1_200_000),
-        detach: option("--detach"),
         confirmEscalation: option("--confirm-escalation"),
       }),
       { brief: message`새 native session 시작 또는 기존 session prompt` },
@@ -282,12 +280,6 @@ export async function runDelegate(
       : await findNativeSession(parsed.target, deps.env);
     const agent = selectPromptAgent(parsed.agent, prompt, snapshot?.agent);
     const transport = selectTransport(parsed.transport, deps.env).transport;
-    if (parsed.detach && transport === "direct") {
-      throw new DelegateError(
-        "detach_requires_herdr",
-        "direct 전송은 --detach를 지원하지 않습니다",
-      );
-    }
     if (transport === "herdr" && deps.env.HERDR_ENV !== "1") {
       throw new DelegateError(
         "transport_unavailable",
@@ -338,7 +330,6 @@ export async function runDelegate(
         snapshot,
         callerId: request.callerId,
         name: parsed.name,
-        detach: parsed.detach,
         timeoutMs: parsed.timeoutMs,
         startOptionsSpecified,
         writeResume: snapshot != null && permission === "write",

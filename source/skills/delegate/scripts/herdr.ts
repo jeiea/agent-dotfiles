@@ -1,3 +1,4 @@
+import { isAbsolute } from "jsr:@std/path@^1";
 import type {
   Blocker,
   DelegateDocument,
@@ -36,7 +37,6 @@ export type HerdrPrompt = {
   snapshot?: SharedSession;
   callerId?: string;
   name?: string;
-  detach: boolean;
   timeoutMs: number;
   startOptionsSpecified: boolean;
   writeResume: boolean;
@@ -65,6 +65,8 @@ type ManagedPane = LiveAgent & {
 };
 
 type CleanupWarning = NonNullable<DelegateDocument["warnings"]>[number];
+
+const paneLockWaitMs = 60_000;
 
 export async function promptHerdr(
   request: HerdrPrompt,
@@ -101,35 +103,54 @@ export async function promptHerdr(
     ),
     expected?.sessionId,
   );
-  if (live == null) {
-    if (callerId == null) {
-      throw new DelegateError(
-        "caller_session_unavailable",
-        "Herdr 신규 session의 caller ID를 확인할 수 없습니다",
-      );
-    }
-    const started = await withSessionError(
-      startAgent(request, callerId, deps),
-      expected?.sessionId,
-    );
-    live = started.live;
-    retry = started.retry;
-  }
-
   try {
-    const baseline = await captureBaseline(deps.env, request.invocation.agent);
-    const prompted = await withSessionError(
-      json(live.cwd ?? expected?.cwd ?? request.cwd, deps, [
-        "agent",
-        "prompt",
-        live.name,
-        request.invocation.prompt,
-      ]),
-      expected?.sessionId,
-    );
-    const promptedAgent = objectValue(prompted.agent);
-    if (Object.keys(promptedAgent).length > 0) {
-      live = { ...live, ...liveFrom(promptedAgent, live.name) };
+    let baseline: Awaited<ReturnType<typeof captureBaseline>>;
+    if (live == null) {
+      if (callerId == null) {
+        throw new DelegateError(
+          "caller_session_unavailable",
+          "Herdr 신규 session의 caller ID를 확인할 수 없습니다",
+        );
+      }
+      const started = await withPaneLock(
+        { deadline, deps, sessionId: expected?.sessionId },
+        async () => {
+          const concurrent = expected == null
+            ? undefined
+            : await findLiveAgent(expected, deps);
+          if (concurrent != null) {
+            throw new DelegateError(
+              "live_session_ambiguous",
+              "session이 다른 호출에서 재개되었습니다",
+              undefined,
+              expected?.sessionId,
+            );
+          }
+          const agentStart = await withSessionError(
+            startAgent(request, callerId, deps),
+            expected?.sessionId,
+          );
+          try {
+            const submitted = await submitPrompt(
+              request,
+              agentStart.live,
+              deps,
+            );
+            return { ...submitted, retry: agentStart.retry };
+          } catch (error) {
+            throw copyDelegateError(normalizeError(error), {
+              retry: agentStart.retry,
+            });
+          }
+        },
+      );
+      live = started.live;
+      baseline = started.baseline;
+      retry = started.retry;
+    } else {
+      const submitted = await submitPrompt(request, live, deps);
+      live = submitted.live;
+      baseline = submitted.baseline;
     }
     const snapshot = await waitForPrompt(
       request,
@@ -169,20 +190,6 @@ export async function promptHerdr(
     live.kind = snapshot.agent;
     live.cwd = snapshot.cwd;
 
-    if (request.detach) {
-      const current = await withSessionError(
-        getAgent(live, snapshot.cwd, deps),
-        snapshot.sessionId,
-      );
-      return document(
-        snapshot,
-        activityOf(current.status),
-        undefined,
-        undefined,
-        retry,
-      );
-    }
-
     const offset = baseline.get(snapshot.path)?.byteLength ?? 0;
     const settled = await waitForQuiescence(snapshot, live, deadline, deps);
     if (settled.snapshot.agent === "codex" && request.name != null) {
@@ -198,6 +205,7 @@ export async function promptHerdr(
       live,
       callerId,
       settled.snapshot.cwd,
+      deadline,
       deps,
     );
     return document(
@@ -258,6 +266,7 @@ export async function waitHerdr(
     live,
     callerId,
     settled.snapshot.cwd,
+    deadline,
     deps,
   );
   return document(
@@ -304,18 +313,107 @@ export async function closeHerdr(
       // 취소 직후 agent가 사라지는 것은 정상적인 정리 경로다.
     }
   }
-  const panes = await listPanes(live.workspaceId, snapshot.cwd, deps);
-  const blockers = blockersInTab(panes, live.tabId, live.paneId);
-  await closePane(live.paneId, snapshot.cwd, deps);
-  if (blockers.length > 0) {
+  const { workspaceId, tabId, paneId } = live;
+  await withPaneLock(
+    {
+      deadline: deps.now() + paneLockWaitMs,
+      deps,
+      sessionId: snapshot.sessionId,
+    },
+    async () => {
+      const panes = await listPanes(workspaceId, snapshot.cwd, deps);
+      const blockers = blockersInTab(panes, tabId, paneId);
+      await closePane(paneId, snapshot.cwd, deps);
+      if (blockers.length > 0) {
+        throw new DelegateError(
+          "tab_close_blocked",
+          "다른 active pane이 남아 탭을 닫지 않았습니다",
+          blockers,
+        );
+      }
+      await closeTab(tabId, snapshot.cwd, deps);
+    },
+  );
+  return document(snapshot, "not_live");
+}
+
+async function submitPrompt(
+  request: HerdrPrompt,
+  live: LiveAgent,
+  deps: HerdrDeps,
+): Promise<{
+  baseline: Awaited<ReturnType<typeof captureBaseline>>;
+  live: LiveAgent;
+}> {
+  const baseline = await captureBaseline(deps.env, request.invocation.agent);
+  const prompted = await withSessionError(
+    json(live.cwd ?? request.snapshot?.cwd ?? request.cwd, deps, [
+      "agent",
+      "prompt",
+      live.name,
+      request.invocation.prompt,
+    ]),
+    request.snapshot?.sessionId,
+  );
+  const promptedAgent = objectValue(prompted.agent);
+  return {
+    baseline,
+    live: Object.keys(promptedAgent).length === 0
+      ? live
+      : { ...live, ...liveFrom(promptedAgent, live.name) },
+  };
+}
+
+async function withPaneLock<T>(
+  options: {
+    deadline: number;
+    deps: HerdrDeps;
+    sessionId?: string;
+  },
+  operation: () => Promise<T>,
+): Promise<T> {
+  const { deadline, deps, sessionId } = options;
+  const socketPath = deps.env.HERDR_SOCKET_PATH;
+  if (socketPath == null || socketPath === "" || !isAbsolute(socketPath)) {
     throw new DelegateError(
-      "tab_close_blocked",
-      "다른 active pane이 남아 탭을 닫지 않았습니다",
-      blockers,
+      "transport_unavailable",
+      "Herdr의 절대 socket 경로를 확인할 수 없습니다",
+      undefined,
+      sessionId,
     );
   }
-  await closeTab(live.tabId, snapshot.cwd, deps);
-  return document(snapshot, "not_live");
+  let file: Deno.FsFile;
+  try {
+    file = await Deno.open(`${socketPath}.delegate-pane.lock`, {
+      create: true,
+      read: true,
+      write: true,
+    });
+  } catch (error) {
+    throw new DelegateError(
+      "herdr_failed",
+      error instanceof Error ? error.message : String(error),
+      undefined,
+      sessionId,
+    );
+  }
+  try {
+    while (!await file.tryLock(true)) {
+      ensureTime(deadline, deps, sessionId);
+      await pause(Math.min(50, remaining(deadline, deps)), deps, sessionId);
+    }
+    try {
+      return await operation();
+    } finally {
+      try {
+        await file.unlock();
+      } catch {
+        // close도 잠금을 해제하므로 주 작업 결과를 unlock 진단으로 덮지 않는다.
+      }
+    }
+  } finally {
+    file.close();
+  }
 }
 
 async function startAgent(
@@ -706,6 +804,7 @@ async function cleanupAutomatically(
   live: LiveAgent,
   callerId: string | undefined,
   cwd: string,
+  deadline: number,
   deps: HerdrDeps,
 ): Promise<CleanupWarning[] | undefined> {
   if (live.workspaceId == null || live.tabId == null || live.paneId == null) {
@@ -714,36 +813,42 @@ async function cleanupAutomatically(
       message: "live pane 위치를 확인하지 못했습니다",
     }];
   }
+  const { workspaceId, tabId, paneId } = live;
   try {
-    const label = await tabLabel(live, cwd, deps);
-    if (callerId == null || label !== callerId) {
-      return [{
-        code: "unmanaged_tab",
-        message: "탭 이름이 caller ID와 달라 자동 정리하지 않았습니다",
-      }];
-    }
-    const panes = await listPanes(live.workspaceId, cwd, deps);
-    const blockers = blockersInTab(panes, live.tabId, live.paneId);
-    if (blockers.length > 0) {
-      return [{
-        code: "tab_close_blocked",
-        message: "다른 active pane이 있어 자동 정리하지 않았습니다",
-        blockers,
-      }];
-    }
-    await closePane(live.paneId, cwd, deps);
-    if (panes.filter((pane) => pane.tabId === live.tabId).length === 1) {
-      try {
-        await closeTab(live.tabId, cwd, deps);
-      } catch (error) {
-        if (
-          !(error instanceof DelegateError &&
-            error.code === "cleanup_failed" &&
-            error.message === `tab ${live.tabId} not found`)
-        ) throw error;
-      }
-    }
-    return undefined;
+    return await withPaneLock(
+      { deadline, deps, sessionId: live.sessionId },
+      async () => {
+        const label = await tabLabel(live, cwd, deps);
+        if (callerId == null || label !== callerId) {
+          return [{
+            code: "unmanaged_tab",
+            message: "탭 이름이 caller ID와 달라 자동 정리하지 않았습니다",
+          }];
+        }
+        const panes = await listPanes(workspaceId, cwd, deps);
+        const blockers = blockersInTab(panes, tabId, paneId);
+        if (blockers.length > 0) {
+          return [{
+            code: "tab_close_blocked",
+            message: "다른 active pane이 있어 자동 정리하지 않았습니다",
+            blockers,
+          }];
+        }
+        await closePane(paneId, cwd, deps);
+        if (panes.filter((pane) => pane.tabId === tabId).length === 1) {
+          try {
+            await closeTab(tabId, cwd, deps);
+          } catch (error) {
+            if (
+              !(error instanceof DelegateError &&
+                error.code === "cleanup_failed" &&
+                error.message === `tab ${tabId} not found`)
+            ) throw error;
+          }
+        }
+        return undefined;
+      },
+    );
   } catch (error) {
     return [{
       code: "cleanup_failed",

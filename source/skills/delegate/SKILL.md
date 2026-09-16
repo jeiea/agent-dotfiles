@@ -34,8 +34,10 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 
 - 일반 위임은 아래 스크립트만 사용
   - `herdr agent start/prompt/read` 직접 조립은 delegate 디버깅 같은 예외에만
-- 여러 위임은 순차 시작
-  - herdr 전송은 동시 시작 시 pane 충돌
+- Herdr 신규·종료 세션의 관리 pane 생성부터 prompt 제출까지와 pane 정리는
+  소켓별로 직렬화
+  - Herdr가 주입하는 절대 `HERDR_SOCKET_PATH` 기준
+  - 소켓 옆 `.delegate-pane.lock` 파일은 남지만 OS 잠금은 프로세스 종료 시 해제
 
 ```sh
 deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt --help
@@ -45,13 +47,6 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt \
   --agent codex --permission read-only <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
-
-# 새 작업을 분리하고 나중에 회수
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt \
-  --agent claude --permission write --detach <<'PROMPT'
-<역할, 맥락, 작업, 종료 조건>
-PROMPT
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts wait <SESSION_ID>
 
 # 같은 대화에 작업 중 또는 종료 뒤 후속 요청
 deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt <SESSION_ID> <<'PROMPT'
@@ -69,9 +64,12 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
 ```
 
 - 공개 식별자는 코덱스·클로드 네이티브 세션 ID 하나
+- `close`의 pane 잠금 대기는 최대 60초이며 초과 시 `timeout` 반환
 - `status`의 `blocked`는 관찰 성공
   - `prompt`·`wait`의 `agent_blocked`는 사용자 입력 필요
 - 종료된 세션을 `--permission write`로 재개 시 `--confirm-escalation` 필요
+- 같은 종료 세션의 동시 재개는 먼저 잠금을 얻은 호출만 진행
+  - 나머지는 `live_session_ambiguous` 반환
 - 실행 중 세션의 권한·모델·추론 강도는 후속 prompt로 변경 불가
 - 작업 중 수동 프롬프트 허용
   - 동기 `prompt`·`wait`는 관찰된 사람 프롬프트가 모두 끝난 뒤 정리
@@ -96,10 +94,9 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
   - 현재 Herdr 전용 오류 코드가 없어 정확한 문구로 판별. Herdr가 문구를 바꾸면
     준비 경합이어도 재시도·`retry` 기록이 생기지 않으며, 전용 구조화 오류 코드나
     pane 생성의 셸 준비 보장이 제공되면 이 판별 제거
-- 동기 `prompt`·분리 작업 `wait` 성공 시 관리 pane과 빈 관리 탭 자동 정리
+- `prompt`·`wait` 성공 시 관리 pane과 빈 관리 탭 자동 정리
   - 수동 프롬프트 여부 무관
   - 대화는 네이티브 JSONL에 남아 다음 `prompt <SESSION_ID>`가 새 pane에서 재개
-  - pane 보존은 `--detach`만 가능
 - 다른 pane이 작업 중이거나 활성 확인 불가면 정리 보류
   - `tab_close_blocked` 경고와 방해 pane 목록 반환
   - 다른 pane 자동 취소·이동·종료 없음
@@ -115,5 +112,5 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
 - 클로드: 새 시작·종료 뒤 재개 시 `<caller-id> <name>` 시작 옵션
   - 실행 중 클로드 불가
 - 코덱스: 완료 뒤 `/rename` 가능한 범위에서 전송
-  - 분리 작업은 후속 `wait`에 같은 `--name` 재전달
+  - `prompt` 중단 뒤 후속 `wait`에서도 이름을 적용하려면 같은 `--name` 재전달
   - 실패해도 결과·경고 없음
