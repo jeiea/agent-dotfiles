@@ -90,6 +90,7 @@ function codexTurn(
   prompt: string,
   result?: string,
   end: "complete" | "aborted" | "open" = result == null ? "open" : "complete",
+  completedAt: string | number = "2026-09-16T00:00:00Z",
 ) {
   return [
     { type: "event_msg", payload: { type: "task_started", turn_id: id } },
@@ -127,7 +128,7 @@ function codexTurn(
         payload: {
           type: "task_complete",
           turn_id: id,
-          completed_at: "2026-09-16T00:00:00Z",
+          completed_at: completedAt,
         },
       }]
       : end === "aborted"
@@ -2077,11 +2078,18 @@ Deno.test("Windows에서 HOME과 사용자 프로필이 달라도 사용자는 �
   assertStringIncludes(result.stdout, "agent: codex");
 });
 
-Deno.test("코덱스 native fixture는 bootstrap·도구·중단 turn을 제외하고 완료 대화와 부분 record 상태를 보존한다", async () => {
+Deno.test("코덱스 native fixture는 완료 대화·부분 record와 숫자 완료 시각의 공개 문자열을 보존한다", async () => {
   await using dir = await tempDir();
   writeJsonl(codexPath(dir.path), [
     codexMeta(),
     ...codexTurn("turn-1", "사람 요청", "최종 답변"),
+    ...codexTurn(
+      "numeric-time",
+      "숫자 시각",
+      "숫자 완료",
+      "complete",
+      1_758_038_401,
+    ),
     ...codexTurn("turn-2", "취소 요청", undefined, "aborted"),
   ], '{"type":"response_item"');
   const snapshot = await findNativeSession(
@@ -2097,6 +2105,9 @@ Deno.test("코덱스 native fixture는 bootstrap·도구·중단 turn을 제외�
   assertEquals(snapshot.completedTurns, [{
     turn_id: "turn-1",
     completed_at: "2026-09-16T00:00:00Z",
+  }, {
+    turn_id: "numeric-time",
+    completed_at: "1758038401",
   }]);
   assertStringIncludes(renderConversation(snapshot), "사람 요청");
   assertStringIncludes(renderConversation(snapshot), "최종 답변");

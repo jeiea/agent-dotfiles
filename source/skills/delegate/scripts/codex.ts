@@ -154,8 +154,10 @@ export function parseCodexSession(
         ...(completed && active.assistant.length > 0
           ? { assistant: active.assistant.at(-1) }
           : {}),
-        ...(completed && typeof payload.completed_at === "string"
-          ? { completedAt: payload.completed_at }
+        ...(completed &&
+            (typeof payload.completed_at === "string" ||
+              typeof payload.completed_at === "number")
+          ? { completedAt: String(payload.completed_at) }
           : {}),
         completed,
         aborted: !completed,
