@@ -7,16 +7,16 @@ allowed-tools: Skill(peer-review) Skill(commit-flavor)
 # 절차
 
 1. 검토 대상 확정
-   - 미커밋 변경을 `commit-flavor`로 커밋 후 포함
+   - 미커밋 변경을 commit-flavor로 커밋 후 포함
    - 커밋 불필요 시 완료 후 이전 상태로 복원
-2. 다음을 각각 `peer-review` 요청
-   - 요청 1: 일반 코드 검토. `peer-review` 기본 기준에 추가
+2. 다음을 각각 peer-review
+   - 요청 1: 일반 코드 검토. peer-review 기본 기준에 추가
      - 핵심 테스트, 문서 반영
      - 회귀, 경계 조건, diff 밖 코드, 외부 시스템 등 잠재 결함
      - 성능, 자원, 오류 처리, 보안
      - UI/UX, 상호 운용성, 장애 허용, 변경 전략
-   - 요청 2: 변경에 유관 취향(flavor) 있을 때 취향 검토. 커밋이면
-     `commit-flavor` 포함
+   - 요청 2: 변경에 유관 취향(flavor) 있을 때 취향 검토. 커밋이면 commit-flavor
+     포함
      - 각 취향 이름과 원문 전달
      - 각 지적에 근거 취향 인용
      - 위반 + 비권고형 원문 → Must fix now
@@ -24,4 +24,4 @@ allowed-tools: Skill(peer-review) Skill(commit-flavor)
      - 사소하더라도 최대 10가지 제안
 3. `peer-review` 재판정 추가 기준: 순 코드 증가로만 해결 가능한 제안은 결함·위반
    해소 아니면 `Follow-up`
-4. 반영 후 `commit-flavor`로 amend 또는 추가 커밋. `Follow-up`은 통합 보고
+4. 반영 후 commit-flavor로 amend 또는 추가 커밋. `Follow-up`은 통합 보고

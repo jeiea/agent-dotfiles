@@ -1,7 +1,7 @@
 ---
 name: mini-loop
-description: 계획·구현·검토 역할을 분리해 복잡한 작업을 반복 수행. delegate, flavor-review 의존
-allowed-tools: Skill(delegate) Skill(flavor-review)
+description: 계획·구현·검토 역할을 분리해 복잡한 작업을 반복 수행. delegate, peer-review, flavor-review, code-flavor 의존
+allowed-tools: Skill(delegate) Skill(peer-review) Skill(flavor-review) Skill(code-flavor)
 ---
 
 # 원칙
@@ -12,23 +12,22 @@ allowed-tools: Skill(delegate) Skill(flavor-review)
   금지
 - 계획을 변경 판단 기준으로 사용. 계획 밖 개선점은 구현하지 않고 제안 목록에
   누적
-- flavor-review 시 결함과 코드량을 늘리지 않는 정리만 반영
-  - 결함: 요구 위반, 계획 불일치, 변경으로 생긴 보안 취약점, 발생 가능성이 높은
-    버그
-  - 배타적 대안은 요구와 flavor 기준으로 하나만 선택
-  - 나머지는 제안 목록으로
 
 # 절차
 
 1. 계획 및 리뷰
    - 같은 모델 delegate 계획자에게 유저 요구 원문, 비목표, 커밋 단위 작업 목록,
      제안 목록을 포함한 계획 파일 작성 요청
-   - flavor-review로 계획 파일 검토, 반영
+   - 코드 구현 계획이면 다음 기준으로 peer-review
+     - code-flavor의 ponytail스러운 최소안이 맞는지
    - 이미 구현됐으면 검증 후 3부터 진행
 2. 조율자와 같은 모델의 구현자에게 계획 파일 구현과 테스트·린트·정적 검사 요청
-3. flavor-review로 계획과 구현 결과 검토, 반영
-   - 일반 검토 요청 기준에 기존 계획과의 정합성도 추가
-   - Must fix now가 없으면 재검토 생략
+3. flavor-review로 계획과 구현 결과 검토
+   - 일반 검토 요청 기준에 기존 계획과의 정합성 추가
+   - 결함과 코드량을 늘리지 않는 정리만 반영, 나머지는 제안 목록으로
+     - 결함: 요구 위반, 계획 불일치, 변경으로 생긴 보안 취약점, 발생 가능성이
+       높은 버그
+   - 배타적 대안은 요구와 flavor 기준으로 하나만 선택
 4. 작업 목록 소진까지 2~3 반복. 작업이 크면 1에서 하위 계획 추가
 5. 검토·검증 불가 시 사유와 잔여 위험 보고
 6. 종료 보고에 제안 목록과 후속 작업 포함
