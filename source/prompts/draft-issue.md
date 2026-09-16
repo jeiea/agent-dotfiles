@@ -22,7 +22,7 @@ allowed-tools: Bash(gh api *) Bash(git remote *) Bash(gh issue list *) Bash(gh i
     - `https://github.com/<owner>/<repo>/discussions/new?category=<카테고리>`
     - 유저가 생성 완료 후 최종 마크다운 형태로 수정
 - 섹션: 아래 내용을 템플릿 섹션에 대응하고, 대응할 곳 없는 섹션은 추가
-  - 배경(Background): 변경 동기, 변경해야하는 이유, 이야기의 시작 등
+  - 배경(Background): 변경 동기, 변경해야 하는 이유, 이야기의 시작 등
   - 성격에 따라 아래 중 하나 선택
     - 재현 방법(Steps to reproduce)
       - 실제 동작을 일으키는 틀리지 않는 최소 환경과 재현 과정
