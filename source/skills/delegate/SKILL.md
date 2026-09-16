@@ -27,6 +27,7 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 - 종속 세션에 delegate 스킬 등 다른 에이전트 재위임 금지 명시
 - 본문은 표준 입력 또는 `--prompt-file`
   - `\n` 이스케이프 대신 실제 개행
+  - 프롬프트 없이 명령을 먼저 실행한 뒤 표준 입력으로 추가하면 실패
 - 클로드 호출자는 스크래치패드 경로 UUID를 `--caller-id`로 전달
 
 # 위임 명령
