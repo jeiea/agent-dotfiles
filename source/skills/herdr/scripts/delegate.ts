@@ -3,7 +3,6 @@ import {
   choice,
   command,
   integer,
-  lineBreak,
   map,
   message,
   multiple,
@@ -16,90 +15,86 @@ import {
   withDefault,
 } from "jsr:@optique/core@^1.2";
 import { path, run } from "jsr:@optique/run@^1.2";
-import { join, resolve } from "jsr:@std/path@^1";
+import { resolve } from "jsr:@std/path@^1";
 import { parseClaudeEvents, planClaude } from "./claude.ts";
 import { parseCodexEvents, planCodex } from "./codex.ts";
 import { directAbortStatus, startDirect } from "./direct.ts";
-import { type DocumentFront, renderDocument } from "./document.ts";
+import {
+  type DelegateDocument,
+  DelegateError,
+  exitCode,
+  type NativeSessionId,
+  renderDocument,
+} from "./document.ts";
 import {
   closeHerdr,
-  refreshHerdr,
-  resumeHerdr,
-  startHerdr,
+  type HerdrDeps,
+  promptHerdr,
+  statusHerdr,
   waitHerdr,
 } from "./herdr.ts";
-import { denoExec, type Exec } from "./process.ts";
 import {
-  readLog,
-  readRun,
-  runExitCode,
-  type RunRecord,
-  writeLogs,
-  writeRun,
-} from "./runs.ts";
+  assertSessionId,
+  findNativeSession,
+  renderConversation,
+  sessionIdPattern,
+} from "./native_session.ts";
+import { denoExec, type Exec } from "./process.ts";
 import {
   type Agent,
   type Effort,
+  type NativeInvocation,
   parseDuration,
   type Permission,
   selectAgent,
   selectTransport,
-  type Transport,
 } from "./select.ts";
 
 export type Deps = {
   exec: Exec;
   env: Record<string, string>;
   stdin: { isTerminal(): boolean; text(): Promise<string> };
-  stateDir: string;
   cwd: string;
   signal: AbortSignal;
-  now(): Date;
+  now?: () => number;
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 };
 
-type CommonOptions = {
+type PromptOptions = {
+  kind: "prompt";
+  target?: string;
   promptFile?: string;
   agent: "auto" | Agent;
   transport: "auto" | "herdr" | "direct";
-  permission?: "read-only" | "write";
-  cwd?: string;
+  permission?: Permission;
+  model?: string;
+  effort?: Effort;
   addDirs: readonly string[];
   callerId?: string;
   name?: string;
-  model?: string;
-  effort: Effort;
   timeoutMs: number;
   detach: boolean;
-  keep: boolean;
-  dryRun: boolean;
+  confirmEscalation: boolean;
 };
 
-type ParsedCommand =
-  | ({ kind: "run" } & CommonOptions & { permission: "read-only" | "write" })
-  | (
-    & { kind: "resume"; target: string; confirmEscalation: boolean }
-    & CommonOptions
-  )
-  | { kind: "status"; target: string }
-  | { kind: "close"; target: string }
-  | { kind: "wait"; target: string; timeoutMs: number }
-  | { kind: "logs"; target: string; lines: number };
-
-type RequestFront = Omit<DocumentFront, "status" | "error">;
-
-function requestResult(
-  front: RequestFront,
-  status: "planned" | "blocked" | "failed",
-  code: number,
-  error?: NonNullable<DocumentFront["error"]>,
-) {
-  const { run_id, ...details } = front;
-  return {
-    stdout: renderDocument({ run_id, status, ...details, error }),
-    stderr: "",
-    code,
-  };
-}
+type ParsedCommand = PromptOptions | {
+  kind: "status";
+  target: string;
+} | {
+  kind: "wait";
+  target: string;
+  timeoutMs: number;
+  callerId?: string;
+  name?: string;
+} | {
+  kind: "logs";
+  target: string;
+  lines: number;
+} | {
+  kind: "close";
+  target: string;
+  callerId?: string;
+};
 
 class CliExit extends Error {
   constructor(readonly code: number) {
@@ -121,312 +116,102 @@ const duration: ValueParser<"sync", number> = {
   format: (value) => `${value}ms`,
 };
 
-const br = lineBreak();
-const helpFooter =
-  message`권장:${br}delegate run --permission read-only <<'PROMPT'${br}첫 번째 줄입니다.${br}${br}두 번째 문단입니다.${br}코드의 \\n은 그대로 유지됩니다.${br}PROMPT${br}${br}오용(위치 인자와 리터럴 \\n 변환 미지원):${br}delegate run --permission read-only '첫 번째 줄\\n두 번째 줄'${br}${br}파일 입력:${br}delegate run --permission write --prompt-file scratch/task.md${br}${br}read-only는 파일·외부 상태 변경 금지, write는 워크스페이스 변경·테스트 허용. 웹 검색·가져오기는 항상 허용.`;
-
-function commonOptions(permissionDefault: boolean) {
-  return {
-    promptFile: optional(option(
-      "-f",
-      "--prompt-file",
-      path({ type: "file", mustExist: true }),
-    )),
-    agent: withDefault(
-      option("--agent", choice(["auto", "codex", "claude"] as const)),
-      "auto" as const,
-    ),
-    transport: withDefault(
-      option("--transport", choice(["auto", "herdr", "direct"] as const)),
-      "auto" as const,
-    ),
-    permission: permissionDefault
-      ? withDefault(
-        option("--permission", choice(["read-only", "write"] as const)),
-        "read-only" as const,
-      )
-      : optional(option(
-        "--permission",
-        choice(["read-only", "write"] as const),
-      )),
-    cwd: optional(option(
-      "-C",
-      "--cwd",
-      path({ type: "directory", mustExist: true }),
-    )),
-    addDirs: multiple(
-      option("--add-dir", path({ type: "directory", mustExist: true })),
-    ),
-    callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
-    name: optional(option("--name", string({ metavar: "NAME" }))),
-    model: optional(option("--model", string({ metavar: "MODEL" }))),
-    effort: withDefault(
-      option(
-        "--effort",
-        choice(["low", "medium", "high", "xhigh", "max"] as const),
-      ),
-      "medium" as const,
-    ),
-    timeoutMs: withDefault(option("--timeout", duration), 1_200_000),
-    detach: option("--detach"),
-    keep: option("--keep"),
-    dryRun: option("--dry-run"),
-  };
-}
-
 function parser() {
-  const runCommand = map(
-    command("run", object(commonOptions(true)), {
-      brief: message`새 위임 시작`,
-      footer: helpFooter,
-    }),
-    (value) => ({ kind: "run" as const, ...value }),
-  );
-  const resumeCommand = map(
+  const prompt = map(
     command(
-      "resume",
+      "prompt",
       object({
-        target: argument(string({ metavar: "RUN_ID|SESSION_ID" }), {}),
-        ...commonOptions(false),
+        target: optional(argument(string({ metavar: "SESSION_ID" }), {})),
+        promptFile: optional(option(
+          "-f",
+          "--prompt-file",
+          path({ type: "file", mustExist: true }),
+        )),
+        agent: withDefault(
+          option("--agent", choice(["auto", "codex", "claude"] as const)),
+          "auto" as const,
+        ),
+        transport: withDefault(
+          option("--transport", choice(["auto", "herdr", "direct"] as const)),
+          "auto" as const,
+        ),
+        permission: optional(option(
+          "--permission",
+          choice(["read-only", "write"] as const),
+        )),
+        model: optional(option("--model", string({ metavar: "MODEL" }))),
+        effort: optional(option(
+          "--effort",
+          choice(["low", "medium", "high", "xhigh", "max"] as const),
+        )),
+        addDirs: multiple(option(
+          "--add-dir",
+          path({ type: "directory", mustExist: true }),
+        )),
+        callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
+        name: optional(option("--name", string({ metavar: "NAME" }))),
+        timeoutMs: withDefault(option("--timeout", duration), 1_200_000),
+        detach: option("--detach"),
         confirmEscalation: option("--confirm-escalation"),
       }),
-      { brief: message`기존 위임 재개` },
+      { brief: message`새 native session 시작 또는 기존 session prompt` },
     ),
-    (value) => ({ kind: "resume" as const, ...value }),
+    (value) => ({
+      kind: "prompt" as const,
+      ...value,
+    }),
   );
-  const targetCommand = (kind: "status" | "close") =>
-    map(
-      command(
-        kind,
-        object({
-          target: argument(string({ metavar: "RUN_ID" }), {}),
-        }),
-        { brief: message`실행 상태 처리` },
-      ),
-      (value) => ({ kind, ...value }),
-    );
-  const waitCommand = map(
+  const status = map(
+    command(
+      "status",
+      object({
+        target: argument(string({ metavar: "SESSION_ID" }), {}),
+      }),
+    ),
+    (value) => ({ kind: "status" as const, ...value }),
+  );
+  const wait = map(
     command(
       "wait",
       object({
-        target: argument(string({ metavar: "RUN_ID" }), {}),
+        target: argument(string({ metavar: "SESSION_ID" }), {}),
         timeoutMs: withDefault(option("--timeout", duration), 1_200_000),
+        callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
+        name: optional(option("--name", string({ metavar: "NAME" }))),
       }),
-      { brief: message`실행 완료 대기` },
     ),
     (value) => ({ kind: "wait" as const, ...value }),
   );
-  const logsCommand = map(
+  const logs = map(
     command(
       "logs",
       object({
-        target: argument(string({ metavar: "RUN_ID" }), {}),
+        target: argument(string({ metavar: "SESSION_ID" }), {}),
         lines: withDefault(option("--lines", integer({ min: 1 })), 200),
       }),
-      { brief: message`실행 로그 조회` },
     ),
     (value) => ({ kind: "logs" as const, ...value }),
   );
-  return or(
-    runCommand,
-    resumeCommand,
-    targetCommand("status"),
-    waitCommand,
-    logsCommand,
-    targetCommand("close"),
+  const close = map(
+    command(
+      "close",
+      object({
+        target: argument(string({ metavar: "SESSION_ID" }), {}),
+        callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
+      }),
+    ),
+    (value) => ({ kind: "close" as const, ...value }),
   );
-}
-
-async function sha256(text: string): Promise<string> {
-  const bytes = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(
-    new Uint8Array(digest),
-    (byte) => byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-async function readPrompt(
-  promptFile: string | undefined,
-  deps: Deps,
-): Promise<{ text: string; source: "stdin" | "file"; path?: string }> {
-  if (promptFile != null) {
-    const absolutePath = resolve(deps.cwd, promptFile);
-    return {
-      text: (await Deno.readTextFile(absolutePath)).replace(/^\uFEFF/, ""),
-      source: "file",
-      path: absolutePath,
-    };
-  }
-  if (deps.stdin.isTerminal()) throw new Error("stdin 프롬프트가 필요합니다");
-  return {
-    text: (await deps.stdin.text()).replace(/^\uFEFF/, ""),
-    source: "stdin",
-  };
-}
-
-function frontFromRecord(record: RunRecord): DocumentFront {
-  return {
-    run_id: record.runId,
-    status: record.status,
-    agent: record.agent,
-    transport: record.transport,
-    permission: record.permission,
-    session_id: record.nativeSessionId,
-    cwd: record.cwd,
-    reason: record.reason,
-    started_at: record.startedAt,
-    finished_at: record.finishedAt,
-    herdr: record.herdr == null ? undefined : {
-      workspace_id: record.herdr.workspaceId,
-      tab_id: record.herdr.tabId,
-      pane_id: record.herdr.paneId,
-      agent_name: record.herdr.agentName,
-    },
-    error: record.error,
-  };
-}
-
-function parsedOutput(record: RunRecord, stdout: string) {
-  return record.agent === "codex"
-    ? parseCodexEvents(stdout)
-    : parseClaudeEvents(stdout);
-}
-
-async function renderRecord(
-  record: RunRecord,
-  deps: Deps,
-): Promise<string> {
-  const raw = await readLog(deps.stateDir, record.runId, "stdout");
-  const result = record.transport === "direct"
-    ? parsedOutput(record, raw).result ?? ""
-    : raw;
-  const continuation = record.transport === "herdr" &&
-      ["working", "blocked", "timed_out"].includes(record.status)
-    ? `\n\n상태 확인: delegate status ${record.runId}` +
-      (record.status === "blocked"
-        ? `\n재개: delegate resume ${record.runId}`
-        : `\n계속 대기: delegate wait ${record.runId}`)
-    : (record.status === "timed_out" || record.status === "cancelled") &&
-        record.nativeSessionId != null
-    ? `\n\n재개: delegate resume ${record.runId}`
-    : "";
-  return renderDocument(frontFromRecord(record), result + continuation);
-}
-
-async function executeDirect(
-  record: RunRecord,
-  invocation: ReturnType<typeof planCodex> | ReturnType<typeof planClaude>,
-  deps: Deps,
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  record.status = "working";
-  await writeRun(deps.stateDir, record);
-  let output;
-  let handle;
-  try {
-    handle = startDirect(
-      invocation,
-      { ...deps, cwd: record.cwd },
-      record.timeoutMs,
-    );
-    output = await handle.output;
-  } catch (error) {
-    record.status = "failed";
-    record.finishedAt = deps.now().toISOString();
-    record.error = error instanceof Deno.errors.NotFound
-      ? {
-        code: "native_unavailable",
-        message: `${record.agent} 실행 파일 없음`,
-      }
-      : {
-        code: "native_failed",
-        message: error instanceof Error ? error.message : String(error),
-      };
-    await writeRun(deps.stateDir, record);
-    await writeLogs(deps.stateDir, record.runId, "", record.error.message);
-    return {
-      stdout: await renderRecord(record, deps),
-      stderr: "[delegate] starting\n[delegate] failed\n",
-      code: record.error.code === "native_unavailable" ? 3 : 5,
-    };
-  }
-
-  await writeLogs(
-    deps.stateDir,
-    record.runId,
-    output.stdout,
-    output.stderr,
-  );
-  const parsed = parsedOutput(record, output.stdout);
-  record.nativeSessionId = parsed.sessionId;
-  record.finishedAt = deps.now().toISOString();
-  const abortStatus = directAbortStatus(handle);
-  if (abortStatus === "cancelled") {
-    record.status = "cancelled";
-    record.error = { code: "cancelled", message: "사용자 중단" };
-  } else if (abortStatus === "timed_out") {
-    record.status = "timed_out";
-    record.error = { code: "timeout", message: "실행 제한 시간 초과" };
-  } else if (
-    output.code !== 0 || parsed.result == null || parsed.sessionId == null
-  ) {
-    record.status = "failed";
-    record.error = {
-      code: "agent_failed",
-      message: parsed.error ??
-        (output.stderr.trim() || "에이전트 결과 파싱 실패"),
-    };
-  } else {
-    record.status = "done";
-    delete record.error;
-  }
-  await writeRun(deps.stateDir, record);
-  return {
-    stdout: await renderRecord(record, deps),
-    stderr: `[delegate] starting\n[delegate] ${record.status}\n`,
-    code: runExitCode(record.status),
-  };
-}
-
-function tail(text: string, lines: number): string {
-  return text.replace(/\n$/, "").split("\n").slice(-lines).join("\n");
-}
-
-function fenced(text: string): string {
-  const longest = Math.max(
-    2,
-    ...(text.match(/`+/g) ?? []).map((run) => run.length),
-  );
-  const fence = "`".repeat(longest + 1);
-  return `${fence}text\n${text}\n${fence}`;
-}
-
-function usageFailure(error: unknown, stderr = "") {
-  const message = error instanceof Error ? error.message : String(error);
-  return {
-    stdout: renderDocument({
-      status: "failed",
-      error: { code: "usage", message },
-    }),
-    stderr,
-    code: 2,
-  };
-}
-
-export function resolveStateDir(env: Record<string, string>): string {
-  if (env.DELEGATE_STATE_DIR != null) return resolve(env.DELEGATE_STATE_DIR);
-  if (env.XDG_STATE_HOME != null) return join(env.XDG_STATE_HOME, "delegate");
-  if (env.HOME != null) return join(env.HOME, ".local", "state", "delegate");
-  throw new Error("DELEGATE_STATE_DIR, XDG_STATE_HOME 또는 HOME이 필요합니다");
+  return or(prompt, status, wait, logs, close);
 }
 
 export async function runDelegate(
   args: string[],
   deps: Deps,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
+  let parsed: ParsedCommand;
   const parserStdout: string[] = [];
   const parserStderr: string[] = [];
-  let parsed: ParsedCommand;
   try {
     parsed = run(parser(), {
       programName: "delegate",
@@ -446,217 +231,317 @@ export async function runDelegate(
     if (error instanceof CliExit && error.code === 0) {
       return { stdout: parserStdout.join(""), stderr: "", code: 0 };
     }
-    const parserMessage = parserStderr.join("").trim();
-    return usageFailure(
-      parserMessage || (error instanceof Error ? error.message : String(error)),
+    return failure(
+      new DelegateError(
+        "usage",
+        parserStderr.join("").trim() ||
+          (error instanceof Error ? error.message : String(error)),
+      ),
+      undefined,
+      undefined,
       parserStderr.join(""),
     );
   }
 
-  if (
-    parsed.kind === "status" || parsed.kind === "wait" ||
-    parsed.kind === "logs" || parsed.kind === "close"
-  ) {
-    try {
-      let record = await readRun(deps.stateDir, parsed.target);
-      let actionCode: number | undefined;
-      if (record.transport === "herdr" && parsed.kind === "wait") {
-        const result = await waitHerdr(record, deps, parsed.timeoutMs);
-        record = result.record;
-        actionCode = result.code;
-      } else if (record.transport === "herdr" && parsed.kind === "close") {
-        const result = await closeHerdr(record, deps);
-        record = result.record;
-        actionCode = result.code;
-      } else if (record.transport === "herdr" && parsed.kind === "status") {
-        const result = await refreshHerdr(record, deps);
-        record = result.record;
-        actionCode = result.code;
-      }
-      if (parsed.kind === "logs") {
-        const [stdout, stderr] = await Promise.all([
-          readLog(deps.stateDir, record.runId, "stdout"),
-          readLog(deps.stateDir, record.runId, "stderr"),
-        ]);
-        const body = `## stdout\n\n${fenced(tail(stdout, parsed.lines))}\n\n` +
-          `## stderr\n\n${fenced(tail(stderr, parsed.lines))}`;
-        return {
-          stdout: renderDocument(frontFromRecord(record), body),
-          stderr: "",
-          code: runExitCode(record.status),
-        };
-      }
-      return {
-        stdout: await renderRecord(record, deps),
-        stderr: "",
-        code: parsed.kind === "close" && record.transport === "direct"
-          ? 0
-          : actionCode ?? runExitCode(record.status),
-      };
-    } catch (error) {
-      return usageFailure(error);
-    }
-  }
-
+  const herdrDeps = runtimeDeps(deps);
   try {
+    if (parsed.kind !== "prompt") {
+      const snapshot = await findNativeSession(parsed.target, deps.env);
+      if (parsed.kind === "logs") {
+        return success({
+          session_id: snapshot.sessionId,
+          agent: snapshot.agent,
+          completed_turns: snapshot.completedTurns,
+          result: tail(renderConversation(snapshot), parsed.lines),
+        });
+      }
+      if (deps.env.HERDR_ENV !== "1") {
+        return success({
+          session_id: snapshot.sessionId,
+          agent: snapshot.agent,
+          activity: "not_live",
+          completed_turns: snapshot.completedTurns,
+        });
+      }
+      if (parsed.kind === "status") {
+        return success(await statusHerdr(snapshot, herdrDeps));
+      }
+      if (parsed.kind === "wait") {
+        return success(await waitHerdr(snapshot, parsed, herdrDeps));
+      }
+      return success(await closeHerdr(snapshot, parsed.callerId, herdrDeps));
+    }
+
     const prompt = await readPrompt(parsed.promptFile, deps);
-    if (prompt.text.trim() === "") throw new Error("빈 프롬프트입니다");
-    let parent: RunRecord | undefined;
-    let resumeSessionId: string | undefined;
-    let agentDecision: { agent: Agent; reason: string };
-    let transportDecision: { transport: Transport; reason: string };
-
-    if (parsed.kind === "resume" && parsed.target.startsWith("run_")) {
-      parent = await readRun(deps.stateDir, parsed.target);
-      if (parsed.agent !== "auto" && parsed.agent !== parent.agent) {
-        throw new Error(
-          `부모 실행의 agent=${parent.agent}와 --agent=${parsed.agent}가 다릅니다`,
-        );
-      }
-      if (
-        parsed.transport !== "auto" && parsed.transport !== parent.transport
-      ) {
-        throw new Error(
-          `부모 실행의 transport=${parent.transport}와 --transport=${parsed.transport}가 다릅니다`,
-        );
-      }
-      if (
-        parent.nativeSessionId == null &&
-        (parent.transport !== "herdr" || parent.herdr == null)
-      ) {
-        throw new Error(`재개할 세션 ID 없음: ${parsed.target}`);
-      }
-      resumeSessionId = parent.nativeSessionId;
-      agentDecision = {
-        agent: parent.agent,
-        reason: `resume-run=${parent.runId}`,
-      };
-      transportDecision = {
-        transport: parent.transport,
-        reason: `resume-transport=${parent.transport}`,
-      };
-    } else if (parsed.kind === "resume") {
-      if (parsed.agent === "auto") {
-        throw new Error("세션 ID resume에는 --agent가 필요합니다");
-      }
-      resumeSessionId = parsed.target;
-      agentDecision = {
-        agent: parsed.agent,
-        reason: `agent-explicit=${parsed.agent}`,
-      };
-      transportDecision = selectTransport(parsed.transport, deps.env);
-    } else {
-      agentDecision = parsed.agent === "auto"
-        ? selectAgent(prompt.text)
-        : { agent: parsed.agent, reason: `agent-explicit=${parsed.agent}` };
-      transportDecision = selectTransport(parsed.transport, deps.env);
+    if (prompt.trim() === "") {
+      throw new DelegateError("usage", "빈 프롬프트입니다");
     }
-
-    if (parsed.detach && transportDecision.transport === "direct") {
-      throw new Error("--detach는 Herdr 전송에서만 사용할 수 있습니다");
+    const snapshot = parsed.target == null
+      ? undefined
+      : await findNativeSession(parsed.target, deps.env);
+    const agent = selectPromptAgent(parsed.agent, prompt, snapshot?.agent);
+    const transport = selectTransport(parsed.transport, deps.env).transport;
+    if (parsed.detach && transport === "direct") {
+      throw new DelegateError(
+        "detach_requires_herdr",
+        "direct 전송은 --detach를 지원하지 않습니다",
+      );
     }
-    const permission: Permission = parsed.permission ?? parent?.permission ??
-      "read-only";
-    const cwd = resolve(deps.cwd, parsed.cwd ?? parent?.cwd ?? deps.cwd);
+    if (transport === "herdr" && deps.env.HERDR_ENV !== "1") {
+      throw new DelegateError(
+        "transport_unavailable",
+        "Herdr 전송을 사용할 수 없습니다",
+      );
+    }
+    const permission = parsed.permission ?? "read-only";
+    if (
+      transport === "direct" && snapshot != null && permission === "write" &&
+      !parsed.confirmEscalation
+    ) {
+      throw new DelegateError(
+        "permission_escalation",
+        "stopped session의 write 재개에는 --confirm-escalation이 필요합니다",
+      );
+    }
     const request = {
       permission,
-      cwd,
+      cwd: snapshot?.cwd ?? deps.cwd,
       addDirs: parsed.addDirs.map((dir) => resolve(deps.cwd, dir)),
-      effort: parsed.effort,
-      prompt: prompt.text,
+      effort: parsed.effort ?? "medium",
+      prompt,
       model: parsed.model,
-      callerId: parsed.callerId ?? parent?.callerId,
-      name: parsed.name ?? parent?.name,
-      resumeSessionId,
+      callerId: parsed.callerId ?? deps.env.CODEX_THREAD_ID,
+      name: parsed.name,
+      resumeSessionId: snapshot?.sessionId,
     };
-    const invocation = agentDecision.agent === "codex"
+    const invocation = agent === "codex"
       ? planCodex(request)
       : planClaude(request);
-    const bytes = new TextEncoder().encode(prompt.text).length;
-    const promptDigest = await sha256(prompt.text);
-    const runId = `run_${crypto.randomUUID()}`;
-    const reason = [agentDecision.reason, transportDecision.reason];
-    const requestFront: RequestFront = {
-      run_id: runId,
-      agent: agentDecision.agent,
-      transport: transportDecision.transport,
-      permission,
-      session_id: resumeSessionId,
-      cwd,
-      reason,
-      started_at: deps.now().toISOString(),
-      command: [
-        agentDecision.agent,
-        ...(transportDecision.transport === "direct"
-          ? invocation.directArgs
-          : invocation.herdrArgs),
-      ],
-      prompt: {
-        source: prompt.source,
-        ...(prompt.path == null ? {} : { path: prompt.path }),
-        bytes,
-        sha256: promptDigest,
-      },
-    };
-
-    if (
-      parsed.kind === "resume" && parent?.permission === "read-only" &&
-      permission === "write" && !parsed.confirmEscalation
-    ) {
-      return requestResult(requestFront, "blocked", 4, {
-        code: "permission_escalation",
-        message: "write 재개에는 --confirm-escalation이 필요합니다",
-      });
+    const startOptionsSpecified = snapshot != null && (
+      parsed.permission != null || parsed.model != null ||
+      parsed.effort != null || parsed.addDirs.length > 0
+    );
+    if (transport === "direct") {
+      return await executeDirect(
+        invocation,
+        snapshot?.sessionId,
+        request.cwd,
+        deps,
+        parsed.timeoutMs,
+      );
     }
-
-    if (
-      transportDecision.transport === "herdr" && deps.env.HERDR_ENV !== "1"
-    ) {
-      return requestResult(requestFront, "failed", 3, {
-        code: "transport_unavailable",
-        message: "Herdr 환경 밖에서는 Herdr 전송을 사용할 수 없습니다",
-      });
-    }
-
-    if (parsed.dryRun) {
-      return requestResult(requestFront, "planned", 0);
-    }
-
-    const record: RunRecord = {
-      runId,
-      ...(parent == null ? {} : { parentRunId: parent.runId }),
-      agent: agentDecision.agent,
-      transport: transportDecision.transport,
-      permission,
-      cwd,
-      callerId: request.callerId,
-      name: request.name,
-      keep: parsed.keep || parent?.keep,
-      reason,
-      status: "starting",
-      timeoutMs: parsed.timeoutMs,
-      prompt: { bytes, sha256: promptDigest },
-      startedAt: deps.now().toISOString(),
-    };
-    await writeRun(deps.stateDir, record);
-    if (record.transport === "direct") {
-      return executeDirect(record, invocation, deps);
-    }
-    const herdrOptions = {
-      callerId: request.callerId,
-      detach: parsed.detach,
-    };
-    const herdrResult = parsed.kind === "resume" && parent != null
-      ? await resumeHerdr(record, parent, invocation, deps, herdrOptions)
-      : await startHerdr(record, invocation, deps, herdrOptions);
-    return {
-      stdout: await renderRecord(herdrResult.record, deps),
-      stderr: `[delegate] starting\n[delegate] ${herdrResult.record.status}\n`,
-      code: herdrResult.code,
-    };
+    return success(
+      await promptHerdr({
+        invocation,
+        cwd: request.cwd,
+        snapshot,
+        callerId: request.callerId,
+        name: parsed.name,
+        detach: parsed.detach,
+        timeoutMs: parsed.timeoutMs,
+        startOptionsSpecified,
+        writeResume: snapshot != null && permission === "write",
+        confirmEscalation: parsed.confirmEscalation,
+      }, herdrDeps),
+    );
   } catch (error) {
-    return usageFailure(error);
+    const sessionId = parsed.target;
+    const normalized = normalizeError(error);
+    const knownSessionId = normalized.sessionId ?? sessionId;
+    if (
+      normalized.code === "agent_blocked" && knownSessionId != null &&
+      sessionIdPattern.test(knownSessionId)
+    ) {
+      try {
+        const snapshot = await findNativeSession(knownSessionId, deps.env);
+        return failure(normalized, knownSessionId, snapshot.agent, "", {
+          activity: "blocked",
+          completed_turns: snapshot.completedTurns,
+        });
+      } catch {
+        // 원래 blocked 진단을 native 재조회 실패로 덮지 않는다.
+      }
+    }
+    return failure(normalized, knownSessionId);
   }
+}
+
+async function executeDirect(
+  invocation: NativeInvocation,
+  expectedSessionId: string | undefined,
+  cwd: string,
+  deps: Deps,
+  timeoutMs: number,
+) {
+  let handle;
+  let output;
+  try {
+    handle = startDirect(invocation, { ...deps, cwd }, timeoutMs);
+    output = await handle.output;
+  } catch (error) {
+    return failure(
+      new DelegateError(
+        "agent_failed",
+        error instanceof Error ? error.message : String(error),
+      ),
+      expectedSessionId,
+      invocation.agent,
+    );
+  }
+  const parsed = invocation.agent === "codex"
+    ? parseCodexEvents(output.stdout)
+    : parseClaudeEvents(output.stdout);
+  const aborted = directAbortStatus(handle);
+  if (aborted != null) {
+    return failure(
+      new DelegateError(
+        aborted === "cancelled" ? "cancelled" : "timeout",
+        aborted === "cancelled" ? "호출자 중단" : "실행 제한 시간 초과",
+        undefined,
+        parsed.sessionId ?? expectedSessionId,
+      ),
+      parsed.sessionId ?? expectedSessionId,
+      invocation.agent,
+    );
+  }
+  if (
+    expectedSessionId != null && parsed.sessionId != null &&
+    parsed.sessionId.toLowerCase() !== expectedSessionId.toLowerCase()
+  ) {
+    return failure(
+      new DelegateError(
+        "session_id_changed",
+        `resume session ID 변경: ${expectedSessionId} -> ${parsed.sessionId}`,
+      ),
+      expectedSessionId,
+      invocation.agent,
+    );
+  }
+  if (output.code !== 0 || parsed.sessionId == null || parsed.result == null) {
+    return failure(
+      new DelegateError(
+        "agent_failed",
+        parsed.error ??
+          (output.stderr.trim() || "에이전트 결과를 해석할 수 없습니다"),
+      ),
+      parsed.sessionId ?? expectedSessionId,
+      invocation.agent,
+    );
+  }
+  try {
+    assertSessionId(parsed.sessionId);
+  } catch {
+    return failure(
+      new DelegateError(
+        "session_id_unavailable",
+        "native agent가 유효한 session ID를 보고하지 않았습니다",
+      ),
+      expectedSessionId,
+      invocation.agent,
+    );
+  }
+  return success({
+    session_id: parsed.sessionId,
+    agent: invocation.agent,
+    activity: "quiescent",
+    result: parsed.result,
+  });
+}
+
+async function readPrompt(promptFile: string | undefined, deps: Deps) {
+  let prompt: string;
+  if (promptFile != null) {
+    prompt = await Deno.readTextFile(resolve(deps.cwd, promptFile));
+  } else {
+    if (deps.stdin.isTerminal()) {
+      throw new DelegateError("usage", "stdin 프롬프트가 필요합니다");
+    }
+    prompt = await deps.stdin.text();
+  }
+  return prompt.replace(/^\uFEFF/, "").replace(/\r?\n$/, "");
+}
+
+function selectPromptAgent(
+  requested: "auto" | Agent,
+  prompt: string,
+  detected?: Agent,
+): Agent {
+  if (detected != null) {
+    if (requested !== "auto" && requested !== detected) {
+      throw new DelegateError(
+        "usage",
+        `감지된 agent=${detected}와 --agent=${requested}가 다릅니다`,
+      );
+    }
+    return detected;
+  }
+  return requested === "auto" ? selectAgent(prompt).agent : requested;
+}
+
+function runtimeDeps(deps: Deps): HerdrDeps {
+  return {
+    exec: deps.exec,
+    env: deps.env,
+    signal: deps.signal,
+    now: deps.now ?? (() => performance.now()),
+    sleep: deps.sleep ?? abortableSleep,
+  };
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolveSleep, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolveSleep, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+
+function normalizeError(error: unknown): DelegateError {
+  if (error instanceof DelegateError) return error;
+  return new DelegateError(
+    "agent_failed",
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+function success(document: DelegateDocument) {
+  return { stdout: renderDocument(document), stderr: "", code: 0 };
+}
+
+function failure(
+  error: DelegateError,
+  sessionId?: string,
+  agent?: Agent,
+  stderr = "",
+  context: Pick<DelegateDocument, "activity" | "completed_turns"> = {},
+) {
+  const publicSessionId = sessionId != null && sessionIdPattern.test(sessionId)
+    ? sessionId as NativeSessionId
+    : undefined;
+  return {
+    stdout: renderDocument({
+      ...(publicSessionId == null ? {} : { session_id: publicSessionId }),
+      ...(agent == null ? {} : { agent }),
+      ...context,
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.blockers == null ? {} : { blockers: error.blockers }),
+      },
+    }),
+    stderr,
+    code: exitCode(error.code),
+  };
+}
+
+function tail(text: string, lines: number): string {
+  return text.replace(/\n$/, "").split("\n").slice(-lines).join("\n");
 }
 
 async function writeText(
@@ -671,22 +556,19 @@ async function writeText(
 }
 
 async function main(): Promise<void> {
-  const env = Deno.env.toObject();
   const controller = new AbortController();
   const interrupt = () => controller.abort();
   Deno.addSignalListener("SIGINT", interrupt);
   try {
     const result = await runDelegate(Deno.args, {
       exec: denoExec,
-      env,
+      env: Deno.env.toObject(),
       stdin: {
         isTerminal: () => Deno.stdin.isTerminal(),
         text: () => new Response(Deno.stdin.readable).text(),
       },
-      stateDir: resolveStateDir(env),
       cwd: Deno.cwd(),
       signal: controller.signal,
-      now: () => new Date(),
     });
     await writeText(Deno.stdout, result.stdout);
     await writeText(Deno.stderr, result.stderr);

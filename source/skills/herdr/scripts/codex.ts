@@ -2,6 +2,29 @@ import type { NativeInvocation, PlanRequest } from "./select.ts";
 
 const promptPrefix = "claude와 codex 재호출 금지.\n\n";
 
+export type NativeRecord = {
+  value: unknown;
+  start: number;
+  end: number;
+};
+
+export type ParsedTurn = {
+  id: string;
+  prompt: string;
+  assistant?: string;
+  completedAt?: string;
+  completed: boolean;
+  aborted: boolean;
+  start: number;
+  end: number;
+};
+
+export type ParsedSession = {
+  sessionId?: string;
+  cwd?: string;
+  turns: ParsedTurn[];
+};
+
 export function planCodex(request: PlanRequest): NativeInvocation {
   const permission = request.permission === "read-only"
     ? ["-s", "read-only", "-a", "never"]
@@ -60,4 +83,119 @@ export function parseCodexEvents(text: string): ParsedAgentOutput {
     }
   }
   return { sessionId, result, error };
+}
+
+export function parseCodexSession(
+  records: readonly NativeRecord[],
+): ParsedSession {
+  let sessionId: string | undefined;
+  let cwd: string | undefined;
+  let active: {
+    id: string;
+    context: boolean;
+    prompt: string;
+    assistant: string[];
+    start: number;
+  } | undefined;
+  const turns: ParsedTurn[] = [];
+
+  for (const record of records) {
+    const event = asObject(record.value);
+    const payload = asObject(event.payload);
+    if (event.type === "session_meta") {
+      sessionId = stringValue(payload.id);
+      cwd = stringValue(payload.cwd);
+      if (sessionId == null || cwd == null) {
+        throw new Error("invalid codex session_meta");
+      }
+      continue;
+    }
+    if (event.type === "event_msg" && payload.type === "task_started") {
+      const id = stringValue(payload.turn_id);
+      if (id == null) throw new Error("invalid codex task_started");
+      active = {
+        id,
+        context: false,
+        prompt: "",
+        assistant: [],
+        start: record.start,
+      };
+      continue;
+    }
+    if (event.type === "turn_context") {
+      if (stringValue(payload.turn_id) == null) {
+        throw new Error("invalid codex turn_context");
+      }
+      if (active != null && payload.turn_id === active.id) {
+        active.context = true;
+      }
+      continue;
+    }
+    if (
+      event.type === "response_item" && active?.context === true &&
+      payload.type === "message"
+    ) {
+      const text = messageText(payload.content);
+      if (payload.role === "user") active.prompt = text;
+      if (payload.role === "assistant" && text !== "") {
+        active.assistant.push(text);
+      }
+      continue;
+    }
+    if (
+      event.type === "event_msg" && active != null &&
+      (payload.type === "task_complete" || payload.type === "turn_aborted") &&
+      payload.turn_id === active.id
+    ) {
+      const completed = payload.type === "task_complete";
+      turns.push({
+        id: active.id,
+        prompt: active.prompt,
+        ...(completed && active.assistant.length > 0
+          ? { assistant: active.assistant.at(-1) }
+          : {}),
+        ...(completed && typeof payload.completed_at === "string"
+          ? { completedAt: payload.completed_at }
+          : {}),
+        completed,
+        aborted: !completed,
+        start: active.start,
+        end: record.end,
+      });
+      active = undefined;
+    }
+  }
+  if (active?.context === true) {
+    turns.push({
+      id: active.id,
+      prompt: active.prompt,
+      completed: false,
+      aborted: false,
+      start: active.start,
+      end: records.at(-1)?.end ?? active.start,
+    });
+  }
+  return { sessionId, cwd, turns };
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function messageText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value.flatMap((item) => {
+    const block = asObject(item);
+    return ["input_text", "output_text", "text"].includes(String(block.type)) &&
+        typeof block.text === "string"
+      ? [block.text]
+      : [];
+  }).join("\n");
 }

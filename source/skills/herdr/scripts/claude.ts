@@ -1,5 +1,5 @@
+import type { ParsedAgentOutput, ParsedSession } from "./codex.ts";
 import type { NativeInvocation, PlanRequest } from "./select.ts";
-import type { ParsedAgentOutput } from "./codex.ts";
 
 const promptPrefix = "claude와 codex 재호출 금지.\n\n";
 
@@ -65,4 +65,132 @@ export function parseClaudeEvents(text: string): ParsedAgentOutput {
     }
   }
   return { sessionId, result, error };
+}
+
+export function parseClaudeSession(
+  records: readonly { value: unknown; start: number; end: number }[],
+): ParsedSession {
+  let sessionId: string | undefined;
+  let cwd: string | undefined;
+  let active: {
+    id: string;
+    prompt: string;
+    start: number;
+    groups: Map<string, { texts: string[]; toolUse: boolean; order: number }>;
+  } | undefined;
+  let groupOrder = 0;
+  const turns: ParsedSession["turns"] = [];
+
+  for (const record of records) {
+    const event = asObject(record.value);
+    const recordSessionId = stringValue(event.sessionId) ??
+      stringValue(event.session_id);
+    if (
+      recordSessionId != null && sessionId != null &&
+      recordSessionId !== sessionId
+    ) {
+      throw new Error("claude session ID changed inside JSONL");
+    }
+    sessionId ??= stringValue(event.sessionId) ?? stringValue(event.session_id);
+    cwd ??= stringValue(event.cwd);
+    if (isHumanPrompt(event)) {
+      const uuid = stringValue(event.uuid);
+      if (uuid == null) throw new Error("invalid claude human prompt UUID");
+      active = {
+        id: uuid,
+        prompt: messageText(asObject(event.message).content),
+        start: record.start,
+        groups: new Map(),
+      };
+      continue;
+    }
+    if (
+      event.type === "assistant" && active != null &&
+      event.isSidechain !== true
+    ) {
+      const requestId = stringValue(event.requestId) ??
+        stringValue(asObject(event.message).id) ?? `request-${groupOrder}`;
+      let group = active.groups.get(requestId);
+      if (group == null) {
+        group = { texts: [], toolUse: false, order: groupOrder++ };
+        active.groups.set(requestId, group);
+      }
+      for (const blockValue of arrayValue(asObject(event.message).content)) {
+        const block = asObject(blockValue);
+        if (block.type === "tool_use") group.toolUse = true;
+        if (block.type === "text" && typeof block.text === "string") {
+          group.texts.push(block.text);
+        }
+      }
+      continue;
+    }
+    if (
+      event.type === "system" && event.subtype === "turn_duration" &&
+      active != null
+    ) {
+      const final = [...active.groups.values()]
+        .filter((group) => !group.toolUse && group.texts.length > 0)
+        .sort((left, right) => left.order - right.order).at(-1);
+      turns.push({
+        id: active.id,
+        prompt: active.prompt,
+        ...(final == null ? {} : { assistant: final.texts.join("\n") }),
+        ...(typeof event.timestamp === "string"
+          ? { completedAt: event.timestamp }
+          : {}),
+        completed: true,
+        aborted: false,
+        start: active.start,
+        end: record.end,
+      });
+      active = undefined;
+    }
+  }
+  if (active != null) {
+    turns.push({
+      id: active.id,
+      prompt: active.prompt,
+      completed: false,
+      aborted: false,
+      start: active.start,
+      end: records.at(-1)?.end ?? active.start,
+    });
+  }
+  return { sessionId, cwd, turns };
+}
+
+function isHumanPrompt(event: Record<string, unknown>): boolean {
+  if (event.type !== "user") return false;
+  const origin = asObject(event.origin);
+  if (origin.kind != null || event.promptSource != null) {
+    return origin.kind === "human" && event.promptSource === "typed";
+  }
+  return event.isMeta !== true && event.toolUseResult == null &&
+    event.isSidechain !== true &&
+    (event.userType == null || event.userType === "external") &&
+    typeof asObject(event.message).content === "string";
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function messageText(value: unknown): string {
+  if (typeof value === "string") return value;
+  return arrayValue(value).flatMap((item) => {
+    const block = asObject(item);
+    return block.type === "text" && typeof block.text === "string"
+      ? [block.text]
+      : [];
+  }).join("\n");
 }

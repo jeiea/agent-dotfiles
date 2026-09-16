@@ -1,82 +1,860 @@
-import type { Exec, ExecResult } from "./process.ts";
+import type { Blocker, DelegateDocument, PublicActivity } from "./document.ts";
+import { DelegateError } from "./document.ts";
 import {
-  listRuns,
-  runExitCode,
-  type RunRecord,
-  writeLogs,
-  writeRun,
-} from "./runs.ts";
-import type { NativeInvocation } from "./select.ts";
+  captureBaseline,
+  cursorEquals,
+  findNativeSession,
+  identifyPromptSession,
+  latestHumanOffset,
+  refreshNativeSession,
+  resultAfter,
+  type SharedSession,
+} from "./native_session.ts";
+import type { Exec, ExecResult } from "./process.ts";
+import type { Agent, NativeInvocation } from "./select.ts";
 
-type HerdrDeps = {
+export type HerdrDeps = {
   exec: Exec;
   env: Record<string, string>;
-  stateDir: string;
   signal: AbortSignal;
-  now(): Date;
+  now(): number;
+  sleep(ms: number, signal: AbortSignal): Promise<void>;
 };
 
-type HerdrOptions = {
+export type HerdrPrompt = {
+  invocation: NativeInvocation;
+  cwd: string;
+  snapshot?: SharedSession;
   callerId?: string;
+  name?: string;
   detach: boolean;
+  timeoutMs: number;
+  startOptionsSpecified: boolean;
+  writeResume: boolean;
+  confirmEscalation: boolean;
 };
 
-type DelegateResult = { record: RunRecord; code: number };
+type HerdrResult = Record<string, unknown>;
 
-type AgentInfo = {
-  agent_status?: string;
-  agent_session?: { value?: string };
+type LiveAgent = {
+  name: string;
+  kind?: Agent;
+  cwd?: string;
+  status: string;
+  sequence?: string;
+  sessionId?: string;
+  workspaceId?: string;
+  tabId?: string;
+  paneId?: string;
 };
 
-type PaneInfo = {
-  workspace_id?: string;
-  tab_id?: string;
-  pane_id?: string;
-  agent?: string | null;
-  agent_status?: string;
-  agent_session?: { value?: string };
+type ManagedPane = LiveAgent & {
+  workspaceId: string;
+  tabId: string;
+  paneId: string;
+  callerId: string;
 };
 
-type TabInfo = { tab_id: string; label?: string; agent_status?: string };
+type CleanupWarning = NonNullable<DelegateDocument["warnings"]>[number];
 
-type HerdrResult = {
-  pane?: PaneInfo;
-  panes?: PaneInfo[];
-  tab?: { tab_id: string };
-  tabs?: TabInfo[];
-  root_pane?: { pane_id: string };
-  agent?: AgentInfo;
-  agent_status?: string;
-  status?: string;
-};
+export async function promptHerdr(
+  request: HerdrPrompt,
+  deps: HerdrDeps,
+): Promise<DelegateDocument> {
+  const deadline = deps.now() + request.timeoutMs;
+  const expected = request.snapshot;
+  let live = expected == null ? undefined : await findLiveAgent(expected, deps);
+  if (
+    live != null && expected != null &&
+    hasLiveOptionConflict(request, expected.agent)
+  ) {
+    throw new DelegateError(
+      "live_option_conflict",
+      "live session에는 시작 전용 옵션을 적용할 수 없습니다",
+    );
+  }
+  if (
+    live == null && expected != null && request.writeResume &&
+    !request.confirmEscalation
+  ) {
+    throw new DelegateError(
+      "permission_escalation",
+      "stopped session의 write 재개에는 --confirm-escalation이 필요합니다",
+    );
+  }
+  const callerId = await withSessionError(
+    resolveCallerId(
+      request.callerId,
+      deps,
+      expected?.cwd ?? request.cwd,
+      live == null,
+    ),
+    expected?.sessionId,
+  );
+  if (live == null) {
+    if (callerId == null) {
+      throw new DelegateError(
+        "caller_session_unavailable",
+        "Herdr 신규 session의 caller ID를 확인할 수 없습니다",
+      );
+    }
+    live = await withSessionError(
+      startAgent(request, callerId, deps),
+      expected?.sessionId,
+    );
+  }
 
-class HerdrCommandError extends Error {
-  constructor(readonly commandCode: string, message: string) {
-    super(message);
+  const baseline = await captureBaseline(deps.env, request.invocation.agent);
+  const prompted = await withSessionError(
+    json(live.cwd ?? expected?.cwd ?? request.cwd, deps, [
+      "agent",
+      "prompt",
+      live.name,
+      request.invocation.prompt,
+    ]),
+    expected?.sessionId,
+  );
+  const promptedAgent = objectValue(prompted.agent);
+  if (Object.keys(promptedAgent).length > 0) {
+    live = { ...live, ...liveFrom(promptedAgent, live.name) };
+  }
+  const snapshot = await waitForPrompt(
+    request,
+    baseline,
+    live,
+    deadline,
+    deps,
+  );
+  const deterministic = deterministicName(snapshot.sessionId);
+  if (live.name !== deterministic) {
+    try {
+      await withSessionError(
+        json(snapshot.cwd, deps, [
+          "agent",
+          "rename",
+          live.name,
+          deterministic,
+        ]),
+        snapshot.sessionId,
+      );
+    } catch (error) {
+      if (
+        error instanceof DelegateError &&
+        (error.code === "cancelled" || error.code === "timeout")
+      ) throw error;
+      throw new DelegateError(
+        "live_session_ambiguous",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    live.name = deterministic;
+  }
+  live.sessionId = snapshot.sessionId;
+  live.kind = snapshot.agent;
+  live.cwd = snapshot.cwd;
+
+  if (request.detach) {
+    const current = await withSessionError(
+      getAgent(live, snapshot.cwd, deps),
+      snapshot.sessionId,
+    );
+    return document(snapshot, activityOf(current.status));
+  }
+
+  const offset = baseline.get(snapshot.path)?.byteLength ?? 0;
+  const settled = await waitForQuiescence(snapshot, live, deadline, deps);
+  if (settled.snapshot.agent === "codex" && request.name != null) {
+    await renameCodex(live, callerId, request.name, settled.snapshot.cwd, deps);
+  }
+  const warnings = await cleanupAutomatically(
+    live,
+    callerId,
+    settled.snapshot.cwd,
+    deps,
+  );
+  return document(
+    settled.snapshot,
+    "quiescent",
+    resultAfter(settled.snapshot, offset),
+    warnings,
+  );
+}
+
+export async function statusHerdr(
+  snapshot: SharedSession,
+  deps: HerdrDeps,
+): Promise<DelegateDocument> {
+  const live = await findLiveAgent(snapshot, deps);
+  return document(
+    snapshot,
+    live == null ? "not_live" : activityOf(live.status),
+  );
+}
+
+export async function waitHerdr(
+  snapshot: SharedSession,
+  options: {
+    timeoutMs: number;
+    callerId?: string;
+    name?: string;
+  },
+  deps: HerdrDeps,
+): Promise<DelegateDocument> {
+  if (snapshot.agent === "claude" && options.name != null) {
+    throw new DelegateError(
+      "usage",
+      "Claude wait에는 --name을 사용할 수 없습니다",
+    );
+  }
+  const live = await findLiveAgent(snapshot, deps);
+  if (live == null) return document(snapshot, "not_live");
+  const deadline = deps.now() + options.timeoutMs;
+  const offset = latestHumanOffset(snapshot);
+  const settled = await waitForQuiescence(snapshot, live, deadline, deps);
+  const callerId = await withSessionError(
+    resolveCallerId(options.callerId, deps, snapshot.cwd),
+    snapshot.sessionId,
+  );
+  if (snapshot.agent === "codex" && options.name != null) {
+    await renameCodex(live, callerId, options.name, snapshot.cwd, deps);
+  }
+  const warnings = await cleanupAutomatically(
+    live,
+    callerId,
+    settled.snapshot.cwd,
+    deps,
+  );
+  return document(
+    settled.snapshot,
+    "quiescent",
+    resultAfter(settled.snapshot, offset),
+    warnings,
+  );
+}
+
+export async function closeHerdr(
+  snapshot: SharedSession,
+  callerId: string | undefined,
+  deps: HerdrDeps,
+): Promise<DelegateDocument> {
+  const live = await findLiveAgent(snapshot, deps);
+  if (
+    live == null || live.tabId == null || live.paneId == null ||
+    live.workspaceId == null
+  ) {
+    return document(snapshot, "not_live");
+  }
+  const owner = await withSessionError(
+    resolveCallerId(callerId, deps, snapshot.cwd),
+    snapshot.sessionId,
+  );
+  const label = await tabLabel(live, snapshot.cwd, deps);
+  if (owner == null || label !== owner) {
+    throw new DelegateError(
+      "unmanaged_tab",
+      "탭 이름이 현재 caller ID와 다릅니다. 이름을 복구한 뒤 다시 close하세요",
+    );
+  }
+  if (["working", "blocked", "unknown"].includes(live.status)) {
+    await json(snapshot.cwd, deps, [
+      "agent",
+      "send-keys",
+      live.name,
+      "ctrl+c",
+    ]);
+    try {
+      await getAgent(live, snapshot.cwd, deps);
+    } catch {
+      // 취소 직후 agent가 사라지는 것은 정상적인 정리 경로다.
+    }
+  }
+  const panes = await listPanes(live.workspaceId, snapshot.cwd, deps);
+  const blockers = blockersInTab(panes, live.tabId, live.paneId);
+  await closePane(live.paneId, snapshot.cwd, deps);
+  if (blockers.length > 0) {
+    throw new DelegateError(
+      "tab_close_blocked",
+      "다른 active pane이 남아 탭을 닫지 않았습니다",
+      blockers,
+    );
+  }
+  await closeTab(live.tabId, snapshot.cwd, deps);
+  return document(snapshot, "not_live");
+}
+
+async function startAgent(
+  request: HerdrPrompt,
+  callerId: string,
+  deps: HerdrDeps,
+): Promise<ManagedPane> {
+  const cwd = request.snapshot?.cwd ?? request.cwd;
+  const pane = await allocatePane(
+    cwd,
+    callerId,
+    request.snapshot?.sessionId,
+    deps,
+  );
+  const name = request.snapshot == null
+    ? `dlg-tmp-${crypto.randomUUID().slice(0, 8)}`
+    : deterministicName(request.snapshot.sessionId);
+  const herdrArgs = request.invocation.agent === "claude"
+    ? [
+      ...request.invocation.herdrArgs.filter((arg) =>
+        !arg.startsWith("--name=")
+      ),
+      `--name=${
+        [callerId, request.name].filter((part) => part != null && part !== "")
+          .join(" ")
+      }`,
+    ]
+    : request.invocation.herdrArgs;
+  await json(cwd, deps, [
+    "agent",
+    "start",
+    name,
+    "--kind",
+    request.invocation.agent,
+    "--pane",
+    pane.paneId,
+    "--timeout",
+    "30000",
+    "--",
+    ...herdrArgs,
+  ]);
+  return {
+    ...pane,
+    name,
+    kind: request.invocation.agent,
+    cwd,
+    status: "unknown",
+    sessionId: request.snapshot?.sessionId,
+  };
+}
+
+async function waitForPrompt(
+  request: HerdrPrompt,
+  baseline: Awaited<ReturnType<typeof captureBaseline>>,
+  live: LiveAgent,
+  deadline: number,
+  deps: HerdrDeps,
+): Promise<SharedSession> {
+  let confirmedSessionId = request.snapshot?.sessionId;
+  while (true) {
+    if (confirmedSessionId == null && live.sessionId != null) {
+      try {
+        const reported = await findNativeSession(live.sessionId, deps.env);
+        if (
+          reported.agent !== request.invocation.agent ||
+          reported.cwd !== (request.snapshot?.cwd ?? request.cwd)
+        ) {
+          throw new DelegateError(
+            "invalid_native_session",
+            "Herdr session 정보와 native session metadata가 다릅니다",
+          );
+        }
+        confirmedSessionId = reported.sessionId;
+      } catch (error) {
+        if (
+          !(error instanceof DelegateError &&
+            error.code === "session_not_found")
+        ) {
+          throw error;
+        }
+      }
+    }
+    ensureTime(deadline, deps, confirmedSessionId);
+    const snapshot = await identifyPromptSession(
+      deps.env,
+      request.invocation.agent,
+      baseline,
+      request.invocation.prompt,
+      request.snapshot?.sessionId,
+      live.sessionId,
+    );
+    if (snapshot != null) return snapshot;
+    await pause(
+      Math.min(250, remaining(deadline, deps)),
+      deps,
+      confirmedSessionId,
+    );
   }
 }
 
-async function execute(
-  record: RunRecord,
+async function waitForQuiescence(
+  initial: SharedSession,
+  live: LiveAgent,
+  deadline: number,
   deps: HerdrDeps,
-  args: string[],
-  signal?: AbortSignal,
-): Promise<ExecResult> {
-  return await deps.exec(deps.env.HERDR_BIN_PATH ?? "herdr", args, {
-    cwd: record.cwd,
-    env: deps.env,
-    signal,
+): Promise<{ snapshot: SharedSession; live: LiveAgent }> {
+  let snapshot = initial;
+  while (true) {
+    ensureTime(deadline, deps, snapshot.sessionId);
+    const waited = await withSessionError(
+      json(snapshot.cwd, deps, [
+        "agent",
+        "wait",
+        live.name,
+        "--until",
+        "idle",
+        "--until",
+        "done",
+        "--until",
+        "blocked",
+        "--timeout",
+        String(Math.max(1, Math.floor(remaining(deadline, deps)))),
+      ], deps.signal),
+      snapshot.sessionId,
+    );
+    const candidate = agentFromResult(waited, live.name);
+    if (candidate.status === "blocked") {
+      throw new DelegateError(
+        "agent_blocked",
+        "에이전트가 사용자 입력을 기다립니다",
+        undefined,
+        snapshot.sessionId,
+      );
+    }
+    if (!["idle", "done"].includes(candidate.status)) {
+      await pause(
+        Math.min(50, remaining(deadline, deps)),
+        deps,
+        snapshot.sessionId,
+      );
+      continue;
+    }
+    snapshot = await refreshNativeSession(snapshot);
+    const sequence = requireSequence(candidate);
+    const cursor = snapshot.cursor;
+    await pause(
+      Math.min(500, remaining(deadline, deps)),
+      deps,
+      snapshot.sessionId,
+    );
+    ensureTime(deadline, deps, snapshot.sessionId);
+    const checked = await withSessionError(
+      getAgent(live, snapshot.cwd, deps),
+      snapshot.sessionId,
+    );
+    if (checked.status === "blocked") {
+      throw new DelegateError(
+        "agent_blocked",
+        "에이전트가 사용자 입력을 기다립니다",
+        undefined,
+        snapshot.sessionId,
+      );
+    }
+    const refreshed = await refreshNativeSession(snapshot);
+    if (
+      ["idle", "done"].includes(checked.status) &&
+      requireSequence(checked) === sequence &&
+      cursorEquals(cursor, refreshed.cursor) && !refreshed.cursor.partial
+    ) return { snapshot: refreshed, live: checked };
+    snapshot = refreshed;
+  }
+}
+
+async function findLiveAgent(
+  snapshot: SharedSession,
+  deps: HerdrDeps,
+): Promise<LiveAgent | undefined> {
+  let result: HerdrResult;
+  try {
+    result = await json(snapshot.cwd, deps, ["agent", "list"]);
+  } catch (error) {
+    if (
+      error instanceof DelegateError &&
+      (error.code === "cancelled" || error.code === "timeout")
+    ) {
+      throw new DelegateError(
+        error.code,
+        error.message,
+        error.blockers,
+        snapshot.sessionId,
+      );
+    }
+    throw new DelegateError(
+      "live_session_ambiguous",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  const agents = arrayObjects(result.agents);
+  const bySession = agents.filter((agent) =>
+    sessionOf(agent)?.toLowerCase() === snapshot.sessionId.toLowerCase()
+  );
+  const deterministic = deterministicName(snapshot.sessionId);
+  const byName = agents.filter((agent) => nameOf(agent) === deterministic);
+  const candidates = uniqueObjects([...bySession, ...byName]);
+  if (candidates.length === 0) return undefined;
+  if (candidates.length !== 1) {
+    throw new DelegateError(
+      "live_session_ambiguous",
+      `live agent 후보 복수: ${snapshot.sessionId}`,
+    );
+  }
+  const live = liveFrom(candidates[0]!);
+  if (
+    live.sessionId != null &&
+    live.sessionId.toLowerCase() !== snapshot.sessionId.toLowerCase()
+  ) {
+    throw new DelegateError(
+      "live_session_ambiguous",
+      "live agent session ID 불일치",
+    );
+  }
+  if (live.kind != null && live.kind !== snapshot.agent) {
+    throw new DelegateError("live_session_ambiguous", "live agent 종류 불일치");
+  }
+  if (live.cwd != null && live.cwd !== snapshot.cwd) {
+    throw new DelegateError("live_session_ambiguous", "live agent cwd 불일치");
+  }
+  return live;
+}
+
+async function getAgent(
+  live: LiveAgent,
+  cwd: string,
+  deps: HerdrDeps,
+): Promise<LiveAgent> {
+  const result = await json(cwd, deps, ["agent", "get", live.name]);
+  return { ...live, ...agentFromResult(result, live.name) };
+}
+
+function agentFromResult(result: HerdrResult, fallbackName: string): LiveAgent {
+  const nested = objectValue(result.agent);
+  return liveFrom(
+    Object.keys(nested).length === 0 ? result : nested,
+    fallbackName,
+  );
+}
+
+async function allocatePane(
+  cwd: string,
+  callerId: string,
+  sessionId: string | undefined,
+  deps: HerdrDeps,
+): Promise<Pick<ManagedPane, "workspaceId" | "tabId" | "paneId" | "callerId">> {
+  let currentResult: HerdrResult;
+  try {
+    currentResult = await json(cwd, deps, ["pane", "current", "--current"]);
+  } catch (error) {
+    if (error instanceof DelegateError && error.code === "herdr_failed") {
+      throw new DelegateError("transport_unavailable", error.message);
+    }
+    throw error;
+  }
+  const current = objectValue(currentResult.pane);
+  const workspaceId = stringValue(current.workspace_id);
+  const currentTabId = stringValue(current.tab_id);
+  if (workspaceId == null || currentTabId == null) {
+    throw new DelegateError("herdr_failed", "현재 Herdr pane 정보가 없습니다");
+  }
+  const tabs = await listTabs(workspaceId, cwd, deps);
+  let candidates = tabs.filter((tab) =>
+    tab.label === callerId && tab.tabId !== currentTabId
+  );
+  if (candidates.length > 1 && sessionId != null) {
+    const panes = await listPanes(workspaceId, cwd, deps);
+    const target = deterministicName(sessionId);
+    const tabIds = new Set(
+      panes.filter((pane) => pane.agentName === target).map((pane) =>
+        pane.tabId
+      ),
+    );
+    candidates = candidates.filter((tab) => tabIds.has(tab.tabId));
+  }
+  if (candidates.length > 1) {
+    throw new DelegateError(
+      "live_session_ambiguous",
+      "관리 탭 후보가 복수입니다",
+    );
+  }
+  if (candidates.length === 0) {
+    const created = await json(cwd, deps, [
+      "tab",
+      "create",
+      "--workspace",
+      workspaceId,
+      "--cwd",
+      cwd,
+      "--label",
+      callerId,
+      "--no-focus",
+    ]);
+    const tabId = stringValue(objectValue(created.tab).tab_id);
+    const paneId = stringValue(objectValue(created.root_pane).pane_id);
+    if (tabId == null || paneId == null) {
+      throw new DelegateError(
+        "herdr_failed",
+        "Herdr 탭 생성 응답이 불완전합니다",
+      );
+    }
+    const verified = (await listTabs(workspaceId, cwd, deps)).filter((tab) =>
+      tab.label === callerId && tab.tabId === tabId
+    );
+    if (verified.length !== 1) {
+      throw new DelegateError(
+        "live_session_ambiguous",
+        "생성한 관리 탭 소유권을 확인하지 못했습니다",
+      );
+    }
+    return { workspaceId, tabId, paneId, callerId };
+  }
+  const tabId = candidates[0]!.tabId;
+  const panes = (await listPanes(workspaceId, cwd, deps)).filter((pane) =>
+    pane.tabId === tabId
+  );
+  const available = panes.find((pane) => pane.agentName == null);
+  if (available != null) {
+    return { workspaceId, tabId, paneId: available.paneId, callerId };
+  }
+  const anchor = panes.at(-1)?.paneId;
+  if (anchor == null) {
+    throw new DelegateError("herdr_failed", "관리 탭에 pane이 없습니다");
+  }
+  const split = await json(cwd, deps, [
+    "pane",
+    "split",
+    "--pane",
+    anchor,
+    "--direction",
+    "right",
+    "--cwd",
+    cwd,
+    "--no-focus",
+  ]);
+  const paneId = stringValue(objectValue(split.pane).pane_id);
+  if (paneId == null) {
+    throw new DelegateError("herdr_failed", "pane 분할 응답이 불완전합니다");
+  }
+  return { workspaceId, tabId, paneId, callerId };
+}
+
+async function cleanupAutomatically(
+  live: LiveAgent,
+  callerId: string | undefined,
+  cwd: string,
+  deps: HerdrDeps,
+): Promise<CleanupWarning[] | undefined> {
+  if (live.workspaceId == null || live.tabId == null || live.paneId == null) {
+    return [{
+      code: "cleanup_failed",
+      message: "live pane 위치를 확인하지 못했습니다",
+    }];
+  }
+  try {
+    const label = await tabLabel(live, cwd, deps);
+    if (callerId == null || label !== callerId) {
+      return [{
+        code: "unmanaged_tab",
+        message: "탭 이름이 caller ID와 달라 자동 정리하지 않았습니다",
+      }];
+    }
+    const panes = await listPanes(live.workspaceId, cwd, deps);
+    const blockers = blockersInTab(panes, live.tabId, live.paneId);
+    if (blockers.length > 0) {
+      return [{
+        code: "tab_close_blocked",
+        message: "다른 active pane이 있어 자동 정리하지 않았습니다",
+        blockers,
+      }];
+    }
+    await closePane(live.paneId, cwd, deps);
+    if (panes.filter((pane) => pane.tabId === live.tabId).length === 1) {
+      await closeTab(live.tabId, cwd, deps);
+    }
+    return undefined;
+  } catch (error) {
+    return [{
+      code: "cleanup_failed",
+      message: error instanceof Error ? error.message : String(error),
+    }];
+  }
+}
+
+async function renameCodex(
+  live: LiveAgent,
+  callerId: string | undefined,
+  name: string,
+  cwd: string,
+  deps: HerdrDeps,
+): Promise<void> {
+  const title = [callerId, name].filter((part) => part != null && part !== "")
+    .join(" ");
+  if (title === "") return;
+  try {
+    await json(cwd, deps, ["agent", "prompt", live.name, `/rename ${title}`]);
+    await deps.sleep(500, deps.signal);
+  } catch {
+    // Codex local command는 best effort이며 공개 warning을 만들지 않는다.
+  }
+}
+
+async function resolveCallerId(
+  explicit: string | undefined,
+  deps: HerdrDeps,
+  cwd: string,
+  strict = false,
+): Promise<string | undefined> {
+  if (explicit != null && explicit !== "") return explicit;
+  if (deps.env.CODEX_THREAD_ID != null && deps.env.CODEX_THREAD_ID !== "") {
+    return deps.env.CODEX_THREAD_ID;
+  }
+  try {
+    const pane = objectValue(
+      (await json(cwd, deps, ["pane", "current", "--current"])).pane,
+    );
+    return stringValue(objectValue(pane.agent_session).value);
+  } catch (error) {
+    if (
+      error instanceof DelegateError &&
+      (error.code === "cancelled" || error.code === "timeout")
+    ) throw error;
+    if (strict) {
+      throw new DelegateError(
+        "transport_unavailable",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    return undefined;
+  }
+}
+
+async function tabLabel(
+  live: LiveAgent,
+  cwd: string,
+  deps: HerdrDeps,
+): Promise<string | undefined> {
+  if (live.workspaceId == null || live.tabId == null) return undefined;
+  return (await listTabs(live.workspaceId, cwd, deps)).find((tab) =>
+    tab.tabId === live.tabId
+  )?.label;
+}
+
+async function listTabs(workspaceId: string, cwd: string, deps: HerdrDeps) {
+  return arrayObjects(
+    (await json(cwd, deps, [
+      "tab",
+      "list",
+      "--workspace",
+      workspaceId,
+    ])).tabs,
+  ).flatMap((tab) => {
+    const tabId = stringValue(tab.tab_id);
+    return tabId == null ? [] : [{ tabId, label: stringValue(tab.label) }];
   });
 }
 
-function parseError(stderr: string): { code: string; message: string } {
+async function listPanes(workspaceId: string, cwd: string, deps: HerdrDeps) {
+  return arrayObjects(
+    (await json(cwd, deps, [
+      "pane",
+      "list",
+      "--workspace",
+      workspaceId,
+    ])).panes,
+  ).flatMap((pane) => {
+    const paneId = stringValue(pane.pane_id);
+    const tabId = stringValue(pane.tab_id);
+    if (paneId == null || tabId == null) return [];
+    return [{
+      paneId,
+      tabId,
+      agentName: stringValue(pane.agent) ?? stringValue(pane.agent_name) ??
+        null,
+      status: stringValue(pane.agent_status) ?? "unknown",
+    }];
+  });
+}
+
+function blockersInTab(
+  panes: Awaited<ReturnType<typeof listPanes>>,
+  tabId: string,
+  targetPaneId: string,
+): Blocker[] {
+  return panes.filter((pane) =>
+    pane.tabId === tabId && pane.paneId !== targetPaneId &&
+    (pane.agentName == null ||
+      ["working", "blocked", "unknown"].includes(pane.status))
+  ).map((pane) => ({
+    pane_id: pane.paneId,
+    agent_name: pane.agentName,
+    status: ["working", "blocked"].includes(pane.status)
+      ? pane.status as "working" | "blocked"
+      : "unknown",
+  }));
+}
+
+async function closePane(paneId: string, cwd: string, deps: HerdrDeps) {
   try {
-    const parsed = JSON.parse(stderr) as {
-      error?: { code?: string; message?: string };
-    };
+    await json(cwd, deps, ["pane", "close", paneId]);
+  } catch (error) {
+    throw new DelegateError(
+      "cleanup_failed",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function closeTab(tabId: string, cwd: string, deps: HerdrDeps) {
+  try {
+    await json(cwd, deps, ["tab", "close", tabId]);
+  } catch (error) {
+    throw new DelegateError(
+      "cleanup_failed",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function json(
+  cwd: string,
+  deps: HerdrDeps,
+  args: string[],
+  signal = deps.signal,
+): Promise<HerdrResult> {
+  let output: ExecResult;
+  try {
+    output = await deps.exec(deps.env.HERDR_BIN_PATH ?? "herdr", args, {
+      cwd,
+      env: deps.env,
+      signal,
+    });
+  } catch (error) {
+    if (deps.signal.aborted) throw cancelled();
+    throw new DelegateError(
+      "herdr_failed",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  if (deps.signal.aborted) throw cancelled();
+  if (output.code !== 0) {
+    const parsed = parseCommandError(output.stderr);
+    if (parsed.code === "timeout") {
+      throw new DelegateError("timeout", parsed.message);
+    }
+    if (parsed.code === "agent_blocked") {
+      throw new DelegateError("agent_blocked", parsed.message);
+    }
+    throw new DelegateError("herdr_failed", parsed.message);
+  }
+  try {
+    return objectValue(
+      (JSON.parse(output.stdout) as Record<string, unknown>).result,
+    );
+  } catch {
+    throw new DelegateError(
+      "herdr_failed",
+      "Herdr JSON 응답을 해석할 수 없습니다",
+    );
+  }
+}
+
+function parseCommandError(stderr: string): { code: string; message: string } {
+  try {
+    const error = objectValue(objectValue(JSON.parse(stderr)).error);
     return {
-      code: parsed.error?.code ?? "herdr_failed",
-      message: parsed.error?.message ?? (stderr.trim() || "Herdr 명령 실패"),
+      code: stringValue(error.code) ?? "herdr_failed",
+      message: stringValue(error.message) ?? "Herdr 명령 실패",
     };
   } catch {
     return {
@@ -86,526 +864,160 @@ function parseError(stderr: string): { code: string; message: string } {
   }
 }
 
-async function json(
-  record: RunRecord,
-  deps: HerdrDeps,
-  args: string[],
-  signal?: AbortSignal,
-): Promise<HerdrResult> {
-  const output = await execute(record, deps, args, signal);
-  if (output.code !== 0) {
-    const error = parseError(output.stderr);
-    throw new HerdrCommandError(error.code, error.message);
+function document(
+  snapshot: SharedSession,
+  activity: PublicActivity,
+  result?: string,
+  warnings?: CleanupWarning[],
+): DelegateDocument {
+  return {
+    session_id: snapshot.sessionId,
+    agent: snapshot.agent,
+    activity,
+    completed_turns: snapshot.completedTurns,
+    ...(result == null ? {} : { result }),
+    ...(warnings == null || warnings.length === 0 ? {} : { warnings }),
+  };
+}
+
+function liveFrom(
+  value: Record<string, unknown>,
+  fallbackName = "",
+): LiveAgent {
+  const pane = objectValue(value.pane);
+  const session = objectValue(value.agent_session);
+  const kind = stringValue(value.agent_kind) ?? stringValue(value.kind) ??
+    stringValue(value.agent);
+  return {
+    name: nameOf(value) ?? fallbackName,
+    ...(kind === "codex" || kind === "claude" ? { kind } : {}),
+    cwd: stringValue(value.cwd),
+    status: stringValue(value.agent_status) ?? stringValue(value.status) ??
+      "unknown",
+    sequence: value.state_change_seq == null
+      ? undefined
+      : String(value.state_change_seq),
+    sessionId: stringValue(session.value),
+    workspaceId: stringValue(value.workspace_id) ??
+      stringValue(pane.workspace_id),
+    tabId: stringValue(value.tab_id) ?? stringValue(pane.tab_id),
+    paneId: stringValue(value.pane_id) ?? stringValue(pane.pane_id),
+  };
+}
+
+function nameOf(value: Record<string, unknown>): string | undefined {
+  return stringValue(value.name) ?? stringValue(value.agent_name) ??
+    stringValue(value.pane_id);
+}
+
+function sessionOf(value: Record<string, unknown>): string | undefined {
+  return stringValue(objectValue(value.agent_session).value);
+}
+
+function deterministicName(sessionId: string): string {
+  return `dlg-${sessionId.replaceAll("-", "").slice(0, 28).toLowerCase()}`;
+}
+
+function hasLiveOptionConflict(request: HerdrPrompt, agent: Agent): boolean {
+  return request.startOptionsSpecified ||
+    (agent === "claude" && request.name != null);
+}
+
+function activityOf(status: string): PublicActivity {
+  if (status === "working") return "working";
+  if (status === "blocked") return "blocked";
+  if (status === "idle" || status === "done") return "quiescent";
+  return "unknown";
+}
+
+function requireSequence(live: LiveAgent): string {
+  if (live.sequence == null) {
+    throw new DelegateError(
+      "herdr_failed",
+      "Herdr state_change_seq가 없습니다",
+    );
   }
-  try {
-    return (JSON.parse(output.stdout) as { result?: HerdrResult }).result ?? {};
-  } catch {
-    throw new HerdrCommandError(
-      "invalid_response",
-      "Herdr JSON 응답 파싱 실패",
+  return live.sequence;
+}
+
+function ensureTime(
+  deadline: number,
+  deps: HerdrDeps,
+  sessionId?: string,
+): void {
+  if (deps.signal.aborted) throw cancelled(sessionId);
+  if (remaining(deadline, deps) <= 0) {
+    throw new DelegateError(
+      "timeout",
+      "실행 제한 시간 초과",
+      undefined,
+      sessionId,
     );
   }
 }
 
-function statusOf(result: HerdrResult): string {
-  return result.agent?.agent_status ?? result.agent_status ?? result.status ??
-    "unknown";
+function remaining(deadline: number, deps: HerdrDeps): number {
+  return deadline - deps.now();
 }
 
-async function readAgent(record: RunRecord, deps: HerdrDeps): Promise<string> {
-  const name = record.herdr?.agentName;
-  if (name == null) return "";
-  const recent = await execute(record, deps, [
-    "agent",
-    "read",
-    name,
-    "--source",
-    "recent-unwrapped",
-    "--lines",
-    "200",
-  ]);
-  if (recent.code === 0) return recent.stdout;
-  return (await execute(record, deps, [
-    "agent",
-    "read",
-    name,
-    "--source",
-    "visible",
-    "--lines",
-    "200",
-  ])).stdout;
-}
-
-async function updateSession(
-  record: RunRecord,
-  deps: HerdrDeps,
-): Promise<void> {
-  const name = record.herdr?.agentName;
-  if (name == null) return;
-  const result = await json(record, deps, ["agent", "get", name]);
-  record.nativeSessionId = result.agent?.agent_session?.value;
-}
-
-async function completeAgent(
-  record: RunRecord,
+async function pause(
+  milliseconds: number,
   deps: HerdrDeps,
   sessionId?: string,
 ): Promise<void> {
-  const output = await readAgent(record, deps);
-  await writeLogs(deps.stateDir, record.runId, output, "");
-  if (sessionId == null) await updateSession(record, deps);
-  else record.nativeSessionId = sessionId;
-  record.status = "done";
-  record.finishedAt = deps.now().toISOString();
-  delete record.error;
-  await writeRun(deps.stateDir, record);
-}
-
-async function maybeCloseTab(
-  record: RunRecord,
-  deps: HerdrDeps,
-  keep: boolean,
-  ignoredPaneId?: string,
-): Promise<boolean> {
-  if (keep || record.herdr == null) return false;
-  const { tabId, workspaceId } = record.herdr;
-  const records = await listRuns(deps.stateDir);
-  const ownsTab = records.some((candidate) =>
-    candidate.herdr?.tabId === tabId && candidate.herdr.createdTab
-  );
-  const hasActiveRecord = records.some((candidate) =>
-    candidate.runId !== record.runId && candidate.herdr?.tabId === tabId &&
-    ["working", "blocked", "timed_out"].includes(candidate.status)
-  );
-  if (!ownsTab || hasActiveRecord) return false;
-  const result = await json(record, deps, [
-    "pane",
-    "list",
-    "--workspace",
-    workspaceId,
-  ]);
-  const hasActivePane = (result.panes ?? []).some((pane) =>
-    pane.tab_id === tabId && pane.pane_id !== ignoredPaneId &&
-    ["working", "blocked"].includes(pane.agent_status ?? "")
-  );
-  if (hasActivePane) return false;
-  await json(record, deps, ["tab", "close", tabId]);
-  return true;
-}
-
-async function settleHerdrError(
-  record: RunRecord,
-  deps: HerdrDeps,
-  error: unknown,
-  override: { commandCode?: string; exitCode?: number } = {},
-): Promise<DelegateResult> {
-  if (deps.signal.aborted) {
-    record.status = "working";
-    delete record.error;
-    delete record.finishedAt;
-    await writeRun(deps.stateDir, record);
-    return { record, code: 130 };
-  }
-  const commandCode = override.commandCode ??
-    (error instanceof HerdrCommandError ? error.commandCode : "herdr_failed");
-  record.status = ["agent_blocked", "ambiguous_delegate_tab"].includes(
-      commandCode,
-    )
-    ? "blocked"
-    : ["agent_prompt_stalled", "timeout"].includes(commandCode)
-    ? "timed_out"
-    : "failed";
-  record.error = {
-    code: record.status === "timed_out" ? "timeout" : commandCode,
-    message: error instanceof Error ? error.message : String(error),
-  };
-  if (record.status === "failed") {
-    record.finishedAt = deps.now().toISOString();
-  } else {
-    delete record.finishedAt;
-  }
-  await writeRun(deps.stateDir, record);
-  return { record, code: override.exitCode ?? runExitCode(record.status) };
-}
-
-async function cleanupCompletedRun(
-  record: RunRecord,
-  deps: HerdrDeps,
-): Promise<void> {
   try {
-    await maybeCloseTab(record, deps, record.keep ?? false);
+    await deps.sleep(milliseconds, deps.signal);
   } catch (error) {
-    record.error = {
-      code: "tab_close_failed",
-      message: error instanceof Error ? error.message : String(error),
-    };
-    await writeRun(deps.stateDir, record);
+    if (deps.signal.aborted) throw cancelled(sessionId);
+    throw error;
   }
 }
 
-async function allocatePane(
-  record: RunRecord,
-  deps: HerdrDeps,
-  workspaceId: string,
-  currentTabId: string,
-  callerId: string,
-): Promise<{ tabId: string; paneId: string; createdTab: boolean }> {
-  const listed = await json(record, deps, [
-    "tab",
-    "list",
-    "--workspace",
-    workspaceId,
-  ]);
-  const candidates = (listed.tabs ?? []).filter((tab) =>
-    tab.label === callerId && tab.tab_id !== currentTabId
-  );
-  if (candidates.length > 1) {
-    throw new HerdrCommandError(
-      "ambiguous_delegate_tab",
-      `위임 탭 후보 복수: ${candidates.map((tab) => tab.tab_id).join(", ")}`,
-    );
-  }
-  if (candidates.length === 0) {
-    const created = await json(record, deps, [
-      "tab",
-      "create",
-      "--workspace",
-      workspaceId,
-      "--cwd",
-      record.cwd,
-      "--label",
-      callerId,
-      "--no-focus",
-    ]);
-    if (created.tab == null || created.root_pane == null) {
-      throw new HerdrCommandError(
-        "invalid_response",
-        "Herdr 탭 생성 응답 누락",
-      );
-    }
-    return {
-      tabId: created.tab.tab_id,
-      paneId: created.root_pane.pane_id,
-      createdTab: true,
-    };
-  }
-
-  const tabId = candidates[0]?.tab_id;
-  if (tabId == null) {
-    throw new HerdrCommandError("invalid_response", "탭 ID 누락");
-  }
-  const listedPanes = await json(record, deps, [
-    "pane",
-    "list",
-    "--workspace",
-    workspaceId,
-  ]);
-  const panes = (listedPanes.panes ?? []).filter((pane) =>
-    pane.tab_id === tabId
-  );
-  const available = panes.find((pane) => pane.agent == null);
-  if (available?.pane_id != null) {
-    return { tabId, paneId: available.pane_id, createdTab: false };
-  }
-  const lastPaneId = panes.at(-1)?.pane_id;
-  if (lastPaneId == null) throw new Error(`위임 탭에 pane 없음: ${tabId}`);
-  const split = await json(record, deps, [
-    "pane",
-    "split",
-    "--pane",
-    lastPaneId,
-    "--direction",
-    "right",
-    "--cwd",
-    record.cwd,
-    "--no-focus",
-  ]);
-  if (split.pane?.pane_id == null) {
-    throw new HerdrCommandError(
-      "invalid_response",
-      "Herdr pane 분할 응답 누락",
-    );
-  }
-  return { tabId, paneId: split.pane.pane_id, createdTab: false };
-}
-
-async function promptAndCollect(
-  record: RunRecord,
-  invocation: NativeInvocation,
-  deps: HerdrDeps,
-  options: HerdrOptions,
-): Promise<DelegateResult> {
-  const agentName = record.herdr?.agentName;
-  if (agentName == null) {
-    return settleHerdrError(
-      record,
-      deps,
-      new HerdrCommandError("invalid_response", "Herdr agent 이름 누락"),
-    );
-  }
-  record.status = "working";
-  delete record.error;
-  delete record.finishedAt;
-  await writeRun(deps.stateDir, record);
+async function withSessionError<T>(
+  operation: Promise<T>,
+  sessionId?: string,
+): Promise<T> {
   try {
-    const prompted = await json(record, deps, [
-      "agent",
-      "prompt",
-      agentName,
-      invocation.prompt,
-      "--wait",
-      ...(options.detach ? ["--until", "working"] : []),
-      "--timeout",
-      String(options.detach ? 5_000 : record.timeoutMs),
-    ], deps.signal);
-    const status = statusOf(prompted);
-    if (options.detach && status === "working") return { record, code: 0 };
-    if (status === "blocked") {
-      return settleHerdrError(
-        record,
-        deps,
-        new HerdrCommandError("agent_blocked", "에이전트 응답 필요"),
-      );
-    }
-    if (status !== "done" && status !== "idle") {
-      throw new HerdrCommandError(
-        "agent_unknown",
-        `알 수 없는 상태: ${status}`,
-      );
-    }
-    await completeAgent(record, deps);
-    await cleanupCompletedRun(record, deps);
-    return { record, code: 0 };
-  } catch (error) {
-    return settleHerdrError(record, deps, error);
-  }
-}
-
-export async function startHerdr(
-  record: RunRecord,
-  invocation: NativeInvocation,
-  deps: HerdrDeps,
-  options: HerdrOptions,
-): Promise<DelegateResult> {
-  let current: HerdrResult;
-  try {
-    current = await json(record, deps, ["pane", "current", "--current"]);
-  } catch (error) {
-    return settleHerdrError(record, deps, error, {
-      commandCode: "transport_unavailable",
-      exitCode: 3,
-    });
-  }
-
-  try {
-    const workspaceId = current.pane?.workspace_id;
-    const currentTabId = current.pane?.tab_id;
-    const callerId = options.callerId ?? current.pane?.agent_session?.value;
-    if (workspaceId == null || currentTabId == null) {
-      throw new HerdrCommandError(
-        "invalid_response",
-        "현재 Herdr pane 정보 누락",
-      );
-    }
-    if (callerId == null || callerId === "") {
-      throw new HerdrCommandError(
-        "invalid_response",
-        "Herdr 전송에는 --caller-id가 필요합니다",
-      );
-    }
-    const allocated = await allocatePane(
-      record,
-      deps,
-      workspaceId,
-      currentTabId,
-      callerId,
-    );
-    const agentName = `dlg-${record.runId.slice(-8).toLowerCase()}`;
-    record.callerId = callerId;
-    record.herdr = { workspaceId, agentName, ...allocated };
-    await writeRun(deps.stateDir, record);
-    await json(record, deps, [
-      "agent",
-      "start",
-      agentName,
-      "--kind",
-      record.agent,
-      "--pane",
-      allocated.paneId,
-      "--timeout",
-      "30000",
-      "--",
-      ...invocation.herdrArgs,
-    ]);
-    return promptAndCollect(record, invocation, deps, options);
-  } catch (error) {
-    return settleHerdrError(record, deps, error);
-  }
-}
-
-export async function resumeHerdr(
-  record: RunRecord,
-  parent: RunRecord,
-  invocation: NativeInvocation,
-  deps: HerdrDeps,
-  options: HerdrOptions,
-): Promise<DelegateResult> {
-  if (parent.herdr == null) {
-    return startHerdr(record, invocation, deps, options);
-  }
-  record.herdr = { ...parent.herdr, createdTab: false };
-  try {
-    await json(parent, deps, ["agent", "get", parent.herdr.agentName]);
+    return await operation;
   } catch (error) {
     if (
-      error instanceof HerdrCommandError &&
-      error.commandCode === "agent_not_found"
+      sessionId != null && error instanceof DelegateError &&
+      error.sessionId == null
     ) {
-      if (parent.nativeSessionId == null) {
-        return settleHerdrError(
-          record,
-          deps,
-          new HerdrCommandError(
-            "session_unavailable",
-            `재개할 세션 ID 없음: ${parent.runId}`,
-          ),
-          { exitCode: 2 },
-        );
-      }
-      return startHerdr(record, invocation, deps, options);
-    }
-    return settleHerdrError(record, deps, error);
-  }
-  return promptAndCollect(record, invocation, deps, options);
-}
-
-export async function refreshHerdr(
-  record: RunRecord,
-  deps: HerdrDeps,
-): Promise<DelegateResult> {
-  if (
-    record.herdr == null ||
-    !["working", "timed_out", "blocked"].includes(record.status)
-  ) return { record, code: runExitCode(record.status) };
-  try {
-    const result = await json(record, deps, [
-      "agent",
-      "get",
-      record.herdr.agentName,
-    ]);
-    const status = statusOf(result);
-    if (status === "done" || status === "idle") {
-      await completeAgent(record, deps, result.agent?.agent_session?.value);
-      return { record, code: 0 };
-    }
-    if (status === "working" || status === "blocked") {
-      record.status = status;
-      if (status === "blocked") {
-        record.error = { code: "agent_blocked", message: "에이전트 응답 필요" };
-      } else {
-        delete record.error;
-      }
-    } else {
-      record.error = {
-        code: "agent_unknown",
-        message: `알 수 없는 상태: ${status}`,
-      };
-      delete record.finishedAt;
-      await writeRun(deps.stateDir, record);
-      return { record, code: 5 };
-    }
-    await writeRun(deps.stateDir, record);
-    return { record, code: runExitCode(record.status) };
-  } catch (error) {
-    const lost = error instanceof HerdrCommandError &&
-      error.commandCode === "agent_not_found";
-    if (lost) {
-      return settleHerdrError(record, deps, error, {
-        commandCode: "agent_lost",
-      });
-    }
-    record.error = {
-      code: error instanceof HerdrCommandError
-        ? error.commandCode
-        : "herdr_failed",
-      message: error instanceof Error ? error.message : String(error),
-    };
-    delete record.finishedAt;
-    await writeRun(deps.stateDir, record);
-    return { record, code: 5 };
-  }
-}
-
-export async function waitHerdr(
-  record: RunRecord,
-  deps: HerdrDeps,
-  timeoutMs: number,
-): Promise<DelegateResult> {
-  const refreshed = await refreshHerdr(record, deps);
-  if (refreshed.code !== 0) return refreshed;
-  if (record.status !== "working") {
-    if (record.status === "done") await cleanupCompletedRun(record, deps);
-    return { record, code: runExitCode(record.status) };
-  }
-  try {
-    const result = await json(record, deps, [
-      "agent",
-      "wait",
-      record.herdr?.agentName ?? "",
-      "--timeout",
-      String(timeoutMs),
-    ], deps.signal);
-    const status = statusOf(result);
-    if (status === "done" || status === "idle") {
-      await completeAgent(record, deps, result.agent?.agent_session?.value);
-      await cleanupCompletedRun(record, deps);
-      return { record, code: 0 };
-    }
-    record.status = status === "blocked" ? "blocked" : "working";
-    if (record.status === "blocked") {
-      record.error = { code: "agent_blocked", message: "에이전트 응답 필요" };
-    } else {
-      delete record.error;
-    }
-    await writeRun(deps.stateDir, record);
-    return { record, code: status === "blocked" ? 4 : 0 };
-  } catch (error) {
-    return settleHerdrError(record, deps, error);
-  }
-}
-
-export async function closeHerdr(
-  record: RunRecord,
-  deps: HerdrDeps,
-): Promise<DelegateResult> {
-  const wasWorking = record.status === "working";
-  await refreshHerdr(record, deps);
-  try {
-    const closed = await maybeCloseTab(
-      record,
-      deps,
-      false,
-      record.herdr?.paneId,
-    );
-    if (!closed && record.herdr != null) {
-      throw new HerdrCommandError(
-        "tab_close_failed",
-        "다른 활성 실행 또는 pane 때문에 Herdr 탭을 닫지 못했습니다",
+      throw new DelegateError(
+        error.code,
+        error.message,
+        error.blockers,
+        sessionId,
       );
     }
-  } catch (error) {
-    record.error = {
-      code: "tab_close_failed",
-      message: error instanceof Error ? error.message : String(error),
-    };
-    await writeRun(deps.stateDir, record);
-    return { record, code: 5 };
+    throw error;
   }
-  if (wasWorking && record.status === "working") {
-    record.status = "cancelled";
-    record.error = { code: "cancelled", message: "Herdr 탭 닫힘" };
-    record.finishedAt = deps.now().toISOString();
-    await writeRun(deps.stateDir, record);
-  }
-  return { record, code: 0 };
+}
+
+function cancelled(sessionId?: string): DelegateError {
+  return new DelegateError(
+    "cancelled",
+    sessionId == null ? "호출자 중단" : `호출자 중단; session_id=${sessionId}`,
+    undefined,
+    sessionId,
+  );
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function arrayObjects(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(objectValue) : [];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function uniqueObjects(values: Record<string, unknown>[]) {
+  return [...new Set(values)];
 }
