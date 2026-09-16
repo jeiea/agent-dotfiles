@@ -1,6 +1,6 @@
 ---
 name: peer-review
-description: 산출물을 다른 모델로 검토 및 개선. 직/간접으로 만든 복잡한 변경의 정성적 검토 필요 시 사용. delegate 의존
+description: 산출물을 다른 모델로 검토 및 개선. 직접 만든 변경의 정성적 검토 필요 시 사용. delegate 의존
 allowed-tools: Skill(delegate)
 ---
 
@@ -54,7 +54,7 @@ allowed-tools: Skill(delegate)
 
 4. 검토자 출처를 보존해 결과를 중요도별 병합하고 중복 제거
 5. 각 지적 독립 검증 후 템플릿·호출처 기준 재판정·처리
-   - `Must fix now`: 일괄 반영 후 지적과 연관한 검토를 3부터 반복
+   - `Must fix now`: 일괄 반영 후 독립 검증
    - `Consider`: 요구·명시 선호 부합 시 반영
    - `Follow-up`: 검증 불가, 요구·선호 근거 없는 제안 포함. 중단 질문 없이
      6단계로
@@ -62,7 +62,3 @@ allowed-tools: Skill(delegate)
 6. `Follow-up` 보고
    - 항목별 질문 또는 후속 작업, 권고, 보류 영향 범위
    - 검토 불가 시 사유와 잔여 리스크
-
-# 종료 기준
-
-- 검증·병합 후 `Must fix now` 없음

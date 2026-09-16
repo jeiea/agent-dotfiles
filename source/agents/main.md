@@ -22,7 +22,6 @@
 - 코드 작성 시: code-flavor
 - 테스트 작성 시: tdd-flavor
 - 커밋 시: commit-flavor
-- 검토 시: peer-review 또는 flavor-review
 - 작업 위임 시: 내장 기능 대신 delegate
 - 메모리 필요 시: 시스템 메모리는 휘발 가능해 zettelkasten 사용
 
