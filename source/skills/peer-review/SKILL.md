@@ -1,7 +1,7 @@
 ---
 name: peer-review
-description: 산출물을 다른 모델로 검토 및 개선. 직/간접으로 만든 복잡한 변경의 정성적 검토 필요 시 사용. buddy 의존
-allowed-tools: Skill(buddy)
+description: 산출물을 다른 모델로 검토 및 개선. 직/간접으로 만든 복잡한 변경의 정성적 검토 필요 시 사용. delegate 의존
+allowed-tools: Skill(delegate)
 ---
 
 # 원칙
@@ -18,7 +18,7 @@ allowed-tools: Skill(buddy)
    - 별도 기준 없을 시 다음 기준 사용
      - 요구 충족
      - 오류·모순·누락 확인
-3. 각 요청을 독립 `buddy` 세션에 의뢰
+3. 각 요청을 독립 `delegate` 세션에 의뢰
    - 여러 요청을 한 세션에 통합 금지. 결과 품질 저하
    - 요청 수와 검토자 세션 수 일치 확인
 

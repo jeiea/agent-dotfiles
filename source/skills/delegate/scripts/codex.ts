@@ -1,6 +1,6 @@
 import type { NativeInvocation, PlanRequest } from "./select.ts";
 
-const promptPrefix = "claude와 codex 재호출 금지.\n\n";
+const promptPrefix = "delegate 스킬 등 다른 에이전트 재위임 금지.\n\n";
 
 export type NativeRecord = {
   value: unknown;

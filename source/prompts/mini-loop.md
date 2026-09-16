@@ -1,7 +1,7 @@
 ---
 name: mini-loop
-description: 계획·구현·검토 역할을 분리해 복잡한 작업을 반복 수행. buddy, flavor-review 의존
-allowed-tools: Skill(buddy) Skill(flavor-review)
+description: 계획·구현·검토 역할을 분리해 복잡한 작업을 반복 수행. delegate, flavor-review 의존
+allowed-tools: Skill(delegate) Skill(flavor-review)
 ---
 
 # 원칙
@@ -21,7 +21,7 @@ allowed-tools: Skill(buddy) Skill(flavor-review)
 # 절차
 
 1. 계획 및 리뷰
-   - 같은 모델 buddy 계획자에게 유저 요구 원문, 비목표, 커밋 단위 작업 목록,
+   - 같은 모델 delegate 계획자에게 유저 요구 원문, 비목표, 커밋 단위 작업 목록,
      제안 목록을 포함한 계획 파일 작성 요청
    - flavor-review로 계획 파일 검토, 반영
    - 이미 구현됐으면 검증 후 3부터 진행

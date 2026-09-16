@@ -137,7 +137,7 @@ path = "/^(?!(?:[A-Za-z]:)?[\\\\/]*$).+$/"
 [[rules]]
 tool = "Skill"
 [rules.match]
-skill = "/^(zettelkasten|(codex-tools:)?codex|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments|code-flavor|tdd-flavor|mini-loop|figma|(remote-skills:)?playwright-cli)$/"
+skill = "/^(zettelkasten|delegate|commit-flavor|draft-pr|gemini-query|get-pr-changes|list-issue-comments|list-pr-comments|code-flavor|tdd-flavor|mini-loop|figma|(remote-skills:)?playwright-cli)$/"
 
 [[rules]]
 tool = "SlashCommand"
@@ -782,4 +782,22 @@ expect = "allow"
 description = "wmic delete passthrough"
 tool = "Bash"
 input = { command = "wmic process where \"name='obs64.exe'\" delete" }
+expect = "passthrough"
+
+[[tests]]
+description = "Skill delegate allow"
+tool = "Skill"
+input = { skill = "delegate" }
+expect = "allow"
+
+[[tests]]
+description = "Skill codex passthrough"
+tool = "Skill"
+input = { skill = "codex" }
+expect = "passthrough"
+
+[[tests]]
+description = "Skill codex-tools:codex passthrough"
+tool = "Skill"
+input = { skill = "codex-tools:codex" }
 expect = "passthrough"

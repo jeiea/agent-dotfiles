@@ -14,7 +14,7 @@ import { denoExec } from "./process.ts";
 const codexId = "019efcf8-381f-74a2-a141-f105f1e00e81";
 const claudeId = "c627ecae-f35d-40b1-b5fb-b2b109a52e89";
 const cwd = "/workspace";
-const prefix = "claude와 codex 재호출 금지.\n\n";
+const prefix = "delegate 스킬 등 다른 에이전트 재위임 금지.\n\n";
 
 async function tempDir() {
   const path = await Deno.makeTempDir({ prefix: "delegate-test-" });

@@ -1,7 +1,7 @@
 import type { ParsedAgentOutput, ParsedSession } from "./codex.ts";
 import type { NativeInvocation, PlanRequest } from "./select.ts";
 
-const promptPrefix = "claude와 codex 재호출 금지.\n\n";
+const promptPrefix = "delegate 스킬 등 다른 에이전트 재위임 금지.\n\n";
 
 export function planClaude(request: PlanRequest): NativeInvocation {
   const name = [request.callerId, request.name].filter((part) => part != null)
@@ -18,7 +18,7 @@ export function planClaude(request: PlanRequest): NativeInvocation {
     : [
       "--permission-mode=auto",
       "--allowedTools=WebSearch,WebFetch(domain:*)",
-      "--disallowedTools=Skill(codex-tools:codex),Skill(claude-tools:claude)",
+      "--disallowedTools=Skill(delegate)",
     ];
   const shared = [
     ...(request.model == null ? [] : [`--model=${request.model}`]),
