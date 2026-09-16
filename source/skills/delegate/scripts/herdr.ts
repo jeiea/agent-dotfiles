@@ -31,6 +31,12 @@ export type HerdrDeps = {
   sleep(ms: number, signal: AbortSignal): Promise<void>;
 };
 
+type PromptExecutionDeps = HerdrDeps & {
+  callerSignal: AbortSignal;
+  timeoutSignal: AbortSignal;
+  executionSignal: AbortSignal;
+};
+
 export type HerdrPrompt = {
   invocation: NativeInvocation;
   cwd: string;
@@ -64,6 +70,11 @@ type ManagedPane = LiveAgent & {
   callerId: string;
 };
 
+type PaneOwnership =
+  | { kind: "none" }
+  | { kind: "pane"; paneId: string }
+  | { kind: "tab"; workspaceId: string; paneId: string; tabId: string };
+
 type CleanupWarning = NonNullable<DelegateDocument["warnings"]>[number];
 
 const paneLockWaitMs = 60_000;
@@ -72,10 +83,14 @@ export async function promptHerdr(
   request: HerdrPrompt,
   deps: HerdrDeps,
 ): Promise<DelegateDocument> {
-  const deadline = deps.now() + request.timeoutMs;
+  const executionDeps = promptExecutionDeps(deps, request.timeoutMs);
+  const deadline = executionDeps.now() + request.timeoutMs;
   const expected = request.snapshot;
+  let confirmedSessionId = expected?.sessionId;
   let retry: RetryRecord | undefined;
-  let live = expected == null ? undefined : await findLiveAgent(expected, deps);
+  let live = expected == null
+    ? undefined
+    : await findLiveAgent(expected, executionDeps);
   if (
     live != null && expected != null &&
     hasLiveOptionConflict(request, expected.agent)
@@ -97,7 +112,7 @@ export async function promptHerdr(
   const callerId = await withSessionError(
     resolveCallerId(
       request.callerId,
-      deps,
+      executionDeps,
       expected?.cwd ?? request.cwd,
       live == null,
     ),
@@ -113,11 +128,11 @@ export async function promptHerdr(
         );
       }
       const started = await withPaneLock(
-        { deadline, deps, sessionId: expected?.sessionId },
+        { deadline, deps: executionDeps, sessionId: expected?.sessionId },
         async () => {
           const concurrent = expected == null
             ? undefined
-            : await findLiveAgent(expected, deps);
+            : await findLiveAgent(expected, executionDeps);
           if (concurrent != null) {
             throw new DelegateError(
               "live_session_ambiguous",
@@ -127,20 +142,28 @@ export async function promptHerdr(
             );
           }
           const agentStart = await withSessionError(
-            startAgent(request, callerId, deps),
+            startAgent(request, callerId, deadline, executionDeps),
             expected?.sessionId,
           );
           try {
             const submitted = await submitPrompt(
               request,
               agentStart.live,
-              deps,
+              deadline,
+              executionDeps,
             );
             return { ...submitted, retry: agentStart.retry };
           } catch (error) {
-            throw copyDelegateError(normalizeError(error), {
+            const preserved = copyDelegateError(normalizeError(error), {
               retry: agentStart.retry,
             });
+            await cleanupOwnedPane(
+              agentStart.ownership,
+              agentStart.live.cwd ?? request.cwd,
+              deadline,
+              executionDeps,
+            ).catch(() => {});
+            throw preserved;
           }
         },
       );
@@ -148,7 +171,12 @@ export async function promptHerdr(
       baseline = started.baseline;
       retry = started.retry;
     } else {
-      const submitted = await submitPrompt(request, live, deps);
+      const submitted = await submitPrompt(
+        request,
+        live,
+        deadline,
+        executionDeps,
+      );
       live = submitted.live;
       baseline = submitted.baseline;
     }
@@ -157,13 +185,14 @@ export async function promptHerdr(
       baseline,
       live,
       deadline,
-      deps,
+      executionDeps,
     );
+    confirmedSessionId = snapshot.sessionId;
     const deterministic = deterministicName(snapshot.sessionId);
     if (live.name !== deterministic) {
       try {
         await withSessionError(
-          json(snapshot.cwd, deps, [
+          json(snapshot.cwd, executionDeps, [
             "agent",
             "rename",
             live.name,
@@ -191,14 +220,19 @@ export async function promptHerdr(
     live.cwd = snapshot.cwd;
 
     const offset = baseline.get(snapshot.path)?.byteLength ?? 0;
-    const settled = await waitForQuiescence(snapshot, live, deadline, deps);
+    const settled = await waitForQuiescence(
+      snapshot,
+      live,
+      deadline,
+      executionDeps,
+    );
     if (settled.snapshot.agent === "codex" && request.name != null) {
       await renameCodex(
         live,
         callerId,
         request.name,
         settled.snapshot.cwd,
-        deps,
+        executionDeps,
       );
     }
     const warnings = await cleanupAutomatically(
@@ -206,7 +240,7 @@ export async function promptHerdr(
       callerId,
       settled.snapshot.cwd,
       deadline,
-      deps,
+      executionDeps,
     );
     return document(
       settled.snapshot,
@@ -218,7 +252,7 @@ export async function promptHerdr(
   } catch (error) {
     const normalized = normalizeError(error);
     throw copyDelegateError(normalized, {
-      sessionId: normalized.sessionId ?? expected?.sessionId,
+      sessionId: normalized.sessionId ?? confirmedSessionId,
       retry: normalized.retry ?? retry,
     });
   }
@@ -340,12 +374,15 @@ export async function closeHerdr(
 async function submitPrompt(
   request: HerdrPrompt,
   live: LiveAgent,
+  deadline: number,
   deps: HerdrDeps,
 ): Promise<{
   baseline: Awaited<ReturnType<typeof captureBaseline>>;
   live: LiveAgent;
 }> {
+  ensureTime(deadline, deps, request.snapshot?.sessionId);
   const baseline = await captureBaseline(deps.env, request.invocation.agent);
+  ensureTime(deadline, deps, request.snapshot?.sessionId);
   const prompted = await withSessionError(
     json(live.cwd ?? request.snapshot?.cwd ?? request.cwd, deps, [
       "agent",
@@ -373,6 +410,7 @@ async function withPaneLock<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const { deadline, deps, sessionId } = options;
+  ensureTime(deadline, deps, sessionId);
   const socketPath = deps.env.HERDR_SOCKET_PATH;
   if (socketPath == null || socketPath === "" || !isAbsolute(socketPath)) {
     throw new DelegateError(
@@ -402,6 +440,7 @@ async function withPaneLock<T>(
       ensureTime(deadline, deps, sessionId);
       await pause(Math.min(50, remaining(deadline, deps)), deps, sessionId);
     }
+    ensureTime(deadline, deps, sessionId);
     try {
       return await operation();
     } finally {
@@ -419,10 +458,15 @@ async function withPaneLock<T>(
 async function startAgent(
   request: HerdrPrompt,
   callerId: string,
+  deadline: number,
   deps: HerdrDeps,
-): Promise<{ live: ManagedPane; retry?: RetryRecord }> {
+): Promise<{
+  live: ManagedPane;
+  ownership: PaneOwnership;
+  retry?: RetryRecord;
+}> {
   const cwd = request.snapshot?.cwd ?? request.cwd;
-  const { created, ...pane } = await allocatePane(
+  const { ownership, ...pane } = await allocatePane(
     cwd,
     callerId,
     request.snapshot?.sessionId,
@@ -442,42 +486,53 @@ async function startAgent(
       }`,
     ]
     : request.invocation.herdrArgs;
-  const startArgs = [
-    "agent",
-    "start",
-    name,
-    "--kind",
-    request.invocation.agent,
-    "--pane",
-    pane.paneId,
-    "--timeout",
-    "30000",
-    "--",
-    ...herdrArgs,
-  ];
+  const start = () => {
+    ensureTime(deadline, deps, request.snapshot?.sessionId);
+    return json(cwd, deps, [
+      "agent",
+      "start",
+      name,
+      "--kind",
+      request.invocation.agent,
+      "--pane",
+      pane.paneId,
+      "--timeout",
+      String(
+        Math.max(1, Math.floor(Math.min(30_000, remaining(deadline, deps)))),
+      ),
+      "--",
+      ...herdrArgs,
+    ]);
+  };
   let retry: RetryRecord | undefined;
   try {
-    await json(cwd, deps, startArgs);
-  } catch (error) {
-    const normalized = normalizeError(error);
-    if (
-      !created || normalized.code !== "herdr_failed" ||
-      normalized.message !==
-        `agent target pane ${pane.paneId} is not an available shell`
-    ) throw normalized;
-    const reason = {
-      code: "herdr_failed" as const,
-      message: normalized.message,
-    };
     try {
-      await pause(100, deps, request.snapshot?.sessionId);
-      await json(cwd, deps, startArgs);
-      retry = { reason, result: "success" };
-    } catch (retryError) {
-      throw copyDelegateError(normalizeError(retryError), {
-        retry: { reason, result: "failed" },
-      });
+      await start();
+    } catch (error) {
+      const normalized = normalizeError(error);
+      if (
+        ownership.kind === "none" || normalized.code !== "herdr_failed" ||
+        normalized.message !==
+          `agent target pane ${pane.paneId} is not an available shell`
+      ) throw normalized;
+      const reason = {
+        code: "herdr_failed" as const,
+        message: normalized.message,
+      };
+      try {
+        await pause(100, deps, request.snapshot?.sessionId);
+        await start();
+        retry = { reason, result: "success" };
+      } catch (retryError) {
+        throw copyDelegateError(normalizeError(retryError), {
+          retry: { reason, result: "failed" },
+        });
+      }
     }
+  } catch (error) {
+    const preserved = normalizeError(error);
+    await cleanupOwnedPane(ownership, cwd, deadline, deps).catch(() => {});
+    throw preserved;
   }
   return {
     live: {
@@ -488,6 +543,7 @@ async function startAgent(
       status: "unknown",
       sessionId: request.snapshot?.sessionId,
     },
+    ownership,
     retry,
   };
 }
@@ -532,6 +588,7 @@ async function waitForPrompt(
       request.snapshot?.sessionId,
       live.sessionId,
     );
+    ensureTime(deadline, deps, confirmedSessionId ?? snapshot?.sessionId);
     if (snapshot != null) return snapshot;
     await pause(
       Math.min(250, remaining(deadline, deps)),
@@ -563,7 +620,7 @@ async function waitForQuiescence(
         "blocked",
         "--timeout",
         String(Math.max(1, Math.floor(remaining(deadline, deps)))),
-      ], deps.signal),
+      ]),
       snapshot.sessionId,
     );
     const candidate = agentFromResult(waited, live.name);
@@ -584,6 +641,7 @@ async function waitForQuiescence(
       continue;
     }
     snapshot = await refreshNativeSession(snapshot);
+    ensureTime(deadline, deps, snapshot.sessionId);
     const sequence = requireSequence(candidate);
     const cursor = snapshot.cursor;
     await pause(
@@ -605,6 +663,7 @@ async function waitForQuiescence(
       );
     }
     const refreshed = await refreshNativeSession(snapshot);
+    ensureTime(deadline, deps, refreshed.sessionId);
     if (
       ["idle", "done"].includes(checked.status) &&
       requireSequence(checked) === sequence &&
@@ -695,7 +754,7 @@ async function allocatePane(
   deps: HerdrDeps,
 ): Promise<
   Pick<ManagedPane, "workspaceId" | "tabId" | "paneId" | "callerId"> & {
-    created: boolean;
+    ownership: PaneOwnership;
   }
 > {
   let currentResult: HerdrResult;
@@ -762,7 +821,13 @@ async function allocatePane(
         "생성한 관리 탭 소유권을 확인하지 못했습니다",
       );
     }
-    return { workspaceId, tabId, paneId, callerId, created: true };
+    return {
+      workspaceId,
+      tabId,
+      paneId,
+      callerId,
+      ownership: { kind: "tab", workspaceId, paneId, tabId },
+    };
   }
   const tabId = candidates[0]!.tabId;
   const panes = (await listPanes(workspaceId, cwd, deps)).filter((pane) =>
@@ -775,7 +840,7 @@ async function allocatePane(
       tabId,
       paneId: available.paneId,
       callerId,
-      created: false,
+      ownership: { kind: "none" },
     };
   }
   const anchor = panes.at(-1)?.paneId;
@@ -797,7 +862,61 @@ async function allocatePane(
   if (paneId == null) {
     throw new DelegateError("herdr_failed", "pane 분할 응답이 불완전합니다");
   }
-  return { workspaceId, tabId, paneId, callerId, created: true };
+  return {
+    workspaceId,
+    tabId,
+    paneId,
+    callerId,
+    ownership: { kind: "pane", paneId },
+  };
+}
+
+async function cleanupOwnedPane(
+  ownership: PaneOwnership,
+  cwd: string,
+  deadline: number,
+  deps: HerdrDeps,
+): Promise<void> {
+  if (ownership.kind === "none") return;
+  ensureTime(deadline, deps);
+  let paneCloseError: DelegateError | undefined;
+  try {
+    await closePane(ownership.paneId, cwd, deps);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
+    paneCloseError = normalized;
+  }
+  if (ownership.kind === "pane") {
+    if (paneCloseError != null) throw paneCloseError;
+    return;
+  }
+
+  ensureTime(deadline, deps);
+  let panes: Awaited<ReturnType<typeof listPanes>>;
+  try {
+    panes = await listPanes(ownership.workspaceId, cwd, deps);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
+    throw paneCloseError ?? normalized;
+  }
+  if (panes.some((pane) => pane.tabId === ownership.tabId)) {
+    if (paneCloseError != null) throw paneCloseError;
+    return;
+  }
+
+  ensureTime(deadline, deps);
+  try {
+    await closeTab(ownership.tabId, cwd, deps);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
+    if (normalized.message !== `tab ${ownership.tabId} not found`) {
+      throw paneCloseError ?? normalized;
+    }
+  }
+  if (paneCloseError != null) throw paneCloseError;
 }
 
 async function cleanupAutomatically(
@@ -850,9 +969,11 @@ async function cleanupAutomatically(
       },
     );
   } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
     return [{
       code: "cleanup_failed",
-      message: error instanceof Error ? error.message : String(error),
+      message: normalized.message,
     }];
   }
 }
@@ -869,8 +990,10 @@ async function renameCodex(
   if (title === "") return;
   try {
     await json(cwd, deps, ["agent", "prompt", live.name, `/rename ${title}`]);
-    await deps.sleep(500, deps.signal);
-  } catch {
+    await pause(500, deps, live.sessionId);
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
     // Codex local command는 best effort이며 공개 warning을 만들지 않는다.
   }
 }
@@ -974,9 +1097,11 @@ async function closePane(paneId: string, cwd: string, deps: HerdrDeps) {
   try {
     await json(cwd, deps, ["pane", "close", paneId]);
   } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
     throw new DelegateError(
       "cleanup_failed",
-      error instanceof Error ? error.message : String(error),
+      normalized.message,
     );
   }
 }
@@ -985,9 +1110,11 @@ async function closeTab(tabId: string, cwd: string, deps: HerdrDeps) {
   try {
     await json(cwd, deps, ["tab", "close", tabId]);
   } catch (error) {
+    const normalized = normalizeError(error);
+    if (isLifecycleError(normalized)) throw normalized;
     throw new DelegateError(
       "cleanup_failed",
-      error instanceof Error ? error.message : String(error),
+      normalized.message,
     );
   }
 }
@@ -996,8 +1123,10 @@ async function json(
   cwd: string,
   deps: HerdrDeps,
   args: string[],
-  signal = deps.signal,
+  signal = executionSignal(deps),
 ): Promise<HerdrResult> {
+  const before = interruptionError(deps);
+  if (before != null) throw before;
   let output: ExecResult;
   try {
     output = await deps.exec(deps.env.HERDR_BIN_PATH ?? "herdr", args, {
@@ -1006,13 +1135,15 @@ async function json(
       signal,
     });
   } catch (error) {
-    if (deps.signal.aborted) throw cancelled();
+    const interruption = interruptionError(deps);
+    if (interruption != null) throw interruption;
     throw new DelegateError(
       "herdr_failed",
       error instanceof Error ? error.message : String(error),
     );
   }
-  if (deps.signal.aborted) throw cancelled();
+  const interruption = interruptionError(deps);
+  if (interruption != null) throw interruption;
   if (output.code !== 0) {
     const parsed = parseCommandError(output.stderr);
     if (parsed.code === "timeout") {
@@ -1133,7 +1264,8 @@ function ensureTime(
   deps: HerdrDeps,
   sessionId?: string,
 ): void {
-  if (deps.signal.aborted) throw cancelled(sessionId);
+  const interruption = interruptionError(deps, sessionId);
+  if (interruption != null) throw interruption;
   if (remaining(deadline, deps) <= 0) {
     throw new DelegateError(
       "timeout",
@@ -1153,12 +1285,17 @@ async function pause(
   deps: HerdrDeps,
   sessionId?: string,
 ): Promise<void> {
+  const before = interruptionError(deps, sessionId);
+  if (before != null) throw before;
   try {
-    await deps.sleep(milliseconds, deps.signal);
+    await deps.sleep(milliseconds, executionSignal(deps));
   } catch (error) {
-    if (deps.signal.aborted) throw cancelled(sessionId);
+    const interruption = interruptionError(deps, sessionId);
+    if (interruption != null) throw interruption;
     throw error;
   }
+  const interruption = interruptionError(deps, sessionId);
+  if (interruption != null) throw interruption;
 }
 
 async function withSessionError<T>(
@@ -1182,6 +1319,53 @@ function cancelled(sessionId?: string): DelegateError {
     undefined,
     sessionId,
   );
+}
+
+function promptExecutionDeps(
+  deps: HerdrDeps,
+  timeoutMs: number,
+): PromptExecutionDeps {
+  const callerSignal = deps.signal;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return {
+    ...deps,
+    callerSignal,
+    timeoutSignal,
+    executionSignal: AbortSignal.any([callerSignal, timeoutSignal]),
+  };
+}
+
+function executionSignal(deps: HerdrDeps): AbortSignal {
+  return isPromptExecutionDeps(deps) ? deps.executionSignal : deps.signal;
+}
+
+function interruptionError(
+  deps: HerdrDeps,
+  sessionId?: string,
+): DelegateError | undefined {
+  if (isPromptExecutionDeps(deps)) {
+    if (deps.callerSignal.aborted) return cancelled(sessionId);
+    if (deps.timeoutSignal.aborted) {
+      return new DelegateError(
+        "timeout",
+        "실행 제한 시간 초과",
+        undefined,
+        sessionId,
+      );
+    }
+  } else if (deps.signal.aborted) {
+    return cancelled(sessionId);
+  }
+}
+
+function isPromptExecutionDeps(
+  deps: HerdrDeps,
+): deps is PromptExecutionDeps {
+  return "executionSignal" in deps;
+}
+
+function isLifecycleError(error: DelegateError): boolean {
+  return error.code === "cancelled" || error.code === "timeout";
 }
 
 function objectValue(value: unknown): Record<string, unknown> {

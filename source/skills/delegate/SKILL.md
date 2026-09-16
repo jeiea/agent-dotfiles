@@ -89,19 +89,25 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
     최종 성공과는 별개. 후속 오류가 생겨도 회복 기록 유지
   - 100ms 대기 또는 두 번째 시작 중 중단·실패는 `failed`; 최종 원인은 기존
     최상위 `error`에 반환
-  - 100ms 대기와 두 번째 `agent start --timeout 30000` 실행 시간은 delegate 전체
-    timeout의 엄격한 상한 밖일 수 있음
+  - 100ms 대기, 재시도, rename, 자동 정리는 `prompt --timeout`의 전체 상한을
+    공유하며 timeout 판정 뒤 후속 Herdr 호출 없음
+  - 호출자 취소와 timeout이 함께 성립하면 호출자 취소 우선
+  - 각 `agent start --timeout`은 남은 전체 제한 시간과 30초 중 작은 양의 정수
   - 현재 Herdr 전용 오류 코드가 없어 정확한 문구로 판별. Herdr가 문구를 바꾸면
     준비 경합이어도 재시도·`retry` 기록이 생기지 않으며, 전용 구조화 오류 코드나
     pane 생성의 셸 준비 보장이 제공되면 이 판별 제거
 - `prompt`·`wait` 성공 시 관리 pane과 빈 관리 탭 자동 정리
   - 수동 프롬프트 여부 무관
   - 대화는 네이티브 JSONL에 남아 다음 `prompt <SESSION_ID>`가 새 pane에서 재개
+- `agent start` 또는 최초 `agent prompt` 실패 시 이번 호출이 만든 pane만
+  best-effort로 정리하고, 새 탭이었다면 빈 탭도 정리
+  - 정리 실패는 원래 시작·prompt 오류와 retry 기록을 덮지 않음
+  - 기존 빈 관리 pane과 다른 호출의 pane은 정리하지 않음
 - 다른 pane이 작업 중이거나 활성 확인 불가면 정리 보류
   - `tab_close_blocked` 경고와 방해 pane 목록 반환
   - 다른 pane 자동 취소·이동·종료 없음
-- 정리 실패는 주 작업 결과에 영향 없음
-  - `cleanup_failed` 경고만 반환
+- 호출자 취소·전체 timeout 외 정리 실패는 주 작업 결과에 영향 없음
+  - 일반 실패는 `cleanup_failed` 경고만 반환
 - 관리 탭 이름은 호출자 네이티브 세션 ID
   - 변경 시 관리 제외, `unmanaged_tab` 경고
   - 복구는 이름을 되돌린 뒤 `close`
@@ -113,4 +119,4 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
   - 실행 중 클로드 불가
 - 코덱스: 완료 뒤 `/rename` 가능한 범위에서 전송
   - `prompt` 중단 뒤 후속 `wait`에서도 이름을 적용하려면 같은 `--name` 재전달
-  - 실패해도 결과·경고 없음
+  - 일반 실패는 결과·경고 없음. 호출자 취소·전체 timeout은 prompt 오류로 반환
