@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@^1";
+import { assertEquals, assertRejects } from "jsr:@std/assert@^1";
 import {
   buildViewQuery,
   listProjectViewItems,
@@ -27,15 +27,128 @@ Deno.test("프로젝트 뷰 URL에서 임시 필터와 식별 가능한 슬라�
   );
 });
 
-Deno.test("필드를 알 수 없는 슬라이스 URL은 추정하지 않는다", () => {
-  assertThrows(
+Deno.test("필드 식별자가 없는 슬라이스 값도 뷰 설정 조회를 위해 보존한다", () => {
+  assertEquals(
+    parseProjectViewUrl(
+      "https://github.com/orgs/example/projects/100/views/4?" +
+        "sliceBy%5Bvalue%5D=%EC%9A%94%EC%B2%AD",
+    ),
+    {
+      owner: "example",
+      projectNumber: 100,
+      viewNumber: 4,
+      filter: undefined,
+      sliceFieldId: undefined,
+      sliceValue: "요청",
+      sortFieldId: undefined,
+      sortDirection: undefined,
+    },
+  );
+});
+
+Deno.test("필드 식별자가 없는 슬라이스는 뷰의 단일 그룹 필드로 해석한다", async () => {
+  const calls: string[][] = [];
+  const responses: unknown[] = [
+    {
+      data: {
+        organization: {
+          projectV2: {
+            fields: {
+              nodes: [{
+                databaseId: 123,
+                name: "Status",
+                dataType: "SINGLE_SELECT",
+                options: [{ name: "요청" }],
+              }],
+            },
+            view: {
+              filter: "assignee:@me",
+              groupByFields: {
+                nodes: [{ databaseId: 123, name: "Status" }],
+              },
+              sortByFields: {
+                nodes: [{
+                  direction: "ASC",
+                  field: {
+                    name: "Priority",
+                    options: [{ name: "Urgent" }],
+                  },
+                }],
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      totalCount: 1,
+      items: [{ id: "urgent", title: "Urgent work" }],
+    },
+    {
+      data: {
+        nodes: [{
+          id: "urgent",
+          value: { projectName: "Urgent" },
+        }],
+      },
+    },
+  ];
+
+  await listProjectViewItems(
+    "https://github.com/orgs/example/projects/100/views/4?" +
+      "sliceBy%5Bvalue%5D=%EC%9A%94%EC%B2%AD",
+    {
+      runGhJson: (args) => {
+        calls.push(args);
+        return Promise.resolve(responses.shift());
+      },
+    },
+  );
+
+  assertEquals(calls[1]?.slice(-2), [
+    "--query",
+    'assignee:@me status:"요청"',
+  ]);
+});
+
+Deno.test("필드 식별자 없이 그룹 필드가 여럿이면 추정하지 않는다", async () => {
+  const response = {
+    data: {
+      organization: {
+        projectV2: {
+          fields: { nodes: [] },
+          view: {
+            filter: "",
+            groupByFields: {
+              nodes: [
+                { databaseId: 123, name: "Status" },
+                { databaseId: 456, name: "Team" },
+              ],
+            },
+            sortByFields: {
+              nodes: [{
+                direction: "ASC",
+                field: {
+                  name: "Priority",
+                  options: [{ name: "Urgent" }],
+                },
+              }],
+            },
+          },
+        },
+      },
+    },
+  };
+
+  await assertRejects(
     () =>
-      parseProjectViewUrl(
+      listProjectViewItems(
         "https://github.com/orgs/example/projects/100/views/4?" +
           "sliceBy%5Bvalue%5D=%EC%9A%94%EC%B2%AD",
+        { runGhJson: () => Promise.resolve(response) },
       ),
     Error,
-    "sliceBy[columnId]",
+    "단일 그룹 필드도 없어",
   );
 });
 

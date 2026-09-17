@@ -52,6 +52,12 @@ interface ViewConfigurationResponse {
         };
         view?: {
           filter?: string;
+          groupByFields: {
+            nodes: Array<{
+              databaseId?: number;
+              name: string;
+            }>;
+          };
           sortByFields: {
             nodes: Array<{
               direction: SortDirection;
@@ -121,6 +127,14 @@ query($owner: String!, $projectNumber: Int!, $viewNumber: Int!) {
       }
       view(number: $viewNumber) {
         filter
+        groupByFields(first: 10) {
+          nodes {
+            ... on ProjectV2Field { databaseId name }
+            ... on ProjectV2IterationField { databaseId name }
+            ... on ProjectV2MultiSelectField { databaseId name }
+            ... on ProjectV2SingleSelectField { databaseId name }
+          }
+        }
         sortByFields(first: 10) {
           nodes {
             direction
@@ -174,11 +188,6 @@ export function parseProjectViewUrl(value: string): ProjectViewLocation {
 
   const sliceFieldId = url.searchParams.get("sliceBy[columnId]") ?? undefined;
   const sliceValue = url.searchParams.get("sliceBy[value]") ?? undefined;
-  if (sliceValue && !sliceFieldId) {
-    throw new Error(
-      "슬라이스 값이 있는 URL에는 sliceBy[columnId]도 필요합니다.",
-    );
-  }
 
   const sortFieldIds = url.searchParams.getAll("sortedBy[columnId]");
   const sortDirections = url.searchParams.getAll("sortedBy[direction]");
@@ -351,16 +360,31 @@ async function getViewConfiguration(
     throw new Error(`${sortField.name} 옵션 순서를 읽지 못했습니다.`);
   }
 
-  const sliceField = location.sliceFieldId
+  const groupFields = project.view.groupByFields?.nodes ?? [];
+  const inferredSliceField = !location.sliceFieldId && location.sliceValue
+    ? groupFields.length === 1 ? groupFields[0] : undefined
+    : undefined;
+  if (
+    !location.sliceFieldId && location.sliceValue &&
+    groupFields.length !== 1
+  ) {
+    throw new Error(
+      "sliceBy[columnId]가 없고 뷰의 단일 그룹 필드도 없어 슬라이스를 해석할 수 없습니다.",
+    );
+  }
+  const sliceFieldId = location.sliceFieldId ??
+    (inferredSliceField?.databaseId === undefined
+      ? inferredSliceField?.name
+      : String(inferredSliceField.databaseId));
+  const sliceField = sliceFieldId
     ? project.fields.nodes.find((field) =>
       field &&
-      (field.name === location.sliceFieldId ||
-        String(field.databaseId) === location.sliceFieldId)
+      (field.name === sliceFieldId || String(field.databaseId) === sliceFieldId)
     )
     : undefined;
-  if (location.sliceFieldId && !sliceField) {
+  if (sliceFieldId && !sliceField) {
     throw new Error(
-      `슬라이스 필드 ${location.sliceFieldId}을 찾지 못했습니다.`,
+      `슬라이스 필드 ${sliceFieldId}을 찾지 못했습니다.`,
     );
   }
 
@@ -485,6 +509,14 @@ export async function listProjectViewItems(
   }));
 }
 
+/**
+ * 저장된 뷰 설정과 URL의 filterQuery, query, sliceBy, sortedBy를 반영한다.
+ * 프로젝트 및 조직 이슈의 단일선택 필드를 옵션 순서로 정렬하며, 같은 값에서는
+ * 프로젝트 항목의 상대 순서를 유지한다. 이 동률 순서는 화면과 다를 수 있다.
+ * 식별자 없는 슬라이스는 단일 그룹 필드로만 해석하고, 다중 또는 비단일선택 정렬
+ * 등 확정할 수 없는 상태는 오류로 보고한다. 출력은 위치, 정렬 필드와 값, 이슈
+ * 번호, 제목, URL을 담은 JSON 배열이다.
+ */
 async function main(args: readonly string[]): Promise<void> {
   const parsed = parseArgs(args, { string: ["limit"] });
   const [viewUrl, ...extraPositionals] = parsed._;
