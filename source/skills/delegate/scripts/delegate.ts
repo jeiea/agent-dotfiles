@@ -121,39 +121,92 @@ function parser() {
     command(
       "prompt",
       object({
-        target: optional(argument(string({ metavar: "SESSION_ID" }), {})),
+        target: optional(argument(string({ metavar: "SESSION_ID" }), {
+          description:
+            message`후속 prompt를 보낼 native session ID. 종료된 session은 새 pane에서 재개`,
+        })),
         promptFile: optional(option(
           "-f",
           "--prompt-file",
           path({ type: "file", mustExist: true }),
+          { description: message`prompt 본문 파일. 생략 시 stdin` },
         )),
         agent: withDefault(
-          option("--agent", choice(["auto", "codex", "claude"] as const)),
+          option("--agent", choice(["auto", "codex", "claude"] as const), {
+            description:
+              message`auto는 prompt 키워드로 추정. 기존 session은 감지된 agent 사용`,
+          }),
           "auto" as const,
         ),
         transport: withDefault(
-          option("--transport", choice(["auto", "herdr", "direct"] as const)),
+          option("--transport", choice(["auto", "herdr", "direct"] as const), {
+            description: message`auto는 HERDR_ENV=1이면 herdr, 아니면 direct`,
+          }),
           "auto" as const,
         ),
         permission: optional(option(
           "--permission",
           choice(["read-only", "write"] as const),
+          { description: message`기본 read-only. 실행 중 session은 변경 불가` },
         )),
-        model: optional(option("--model", string({ metavar: "MODEL" }))),
+        model: optional(option("--model", string({ metavar: "MODEL" }), {
+          description: message`native agent 모델. 실행 중 session은 변경 불가`,
+        })),
         effort: optional(option(
           "--effort",
           choice(["low", "medium", "high", "xhigh", "max"] as const),
+          { description: message`기본 medium. 실행 중 session은 변경 불가` },
         )),
         addDirs: multiple(option(
           "--add-dir",
           path({ type: "directory", mustExist: true }),
+          {
+            description:
+              message`추가 접근 디렉터리. 실행 중 session은 변경 불가`,
+          },
         )),
-        callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
-        name: optional(option("--name", string({ metavar: "NAME" }))),
-        timeoutMs: withDefault(option("--timeout", duration), 1_200_000),
-        confirmEscalation: option("--confirm-escalation"),
+        callerId: optional(option("--caller-id", string({ metavar: "ID" }), {
+          description:
+            message`호출자 세션 ID. 관리 탭 이름과 표시 이름 접두사. Codex는 CODEX_THREAD_ID 자동, Claude는 스크래치패드 경로 UUID 전달`,
+        })),
+        name: optional(option("--name", string({ metavar: "NAME" }), {
+          description:
+            message`native session 표시 이름. Claude는 새 시작·종료 뒤 재개 시만 적용, Codex는 완료 뒤 /rename`,
+        })),
+        timeoutMs: withDefault(
+          option("--timeout", duration, {
+            description: message`시작·대기·자동 정리를 합친 전체 상한`,
+          }),
+          1_200_000,
+        ),
+        confirmEscalation: option("--confirm-escalation", {
+          description: message`종료된 session을 write로 재개할 때 필수`,
+        }),
       }),
-      { brief: message`새 native session 시작 또는 기존 session prompt` },
+      {
+        brief: message`새 native session 시작 또는 기존 session에 후속 prompt`,
+        description:
+          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 반환. 성공하면 관리 pane과 빈 관리 탭을 자동 정리하며 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
+        footer: message`error.code 대응
+
+agent_blocked: 사용자 입력 대기. pane에서 응답한 뒤 wait
+
+live_option_conflict: 실행 중 session에 --permission·--model·--effort·--add-dir 지정
+
+permission_escalation: 종료 session의 write 재개에 --confirm-escalation 누락
+
+live_session_ambiguous: 같은 session의 다른 재개 진행 중. 완료 뒤 재시도
+
+timeout: --timeout 초과. session은 계속 실행될 수 있으니 status 확인
+
+warnings[].code 대응 (result는 유효)
+
+tab_close_blocked: 다른 pane 작업 중이라 탭 유지. blockers 종료 뒤 close
+
+unmanaged_tab: 탭 이름이 caller ID와 달라 정리 생략. 이름 복원 뒤 close
+
+cleanup_failed: 정리만 실패. 필요 시 close`,
+      },
     ),
     (value) => ({
       kind: "prompt" as const,
@@ -166,6 +219,11 @@ function parser() {
       object({
         target: argument(string({ metavar: "SESSION_ID" }), {}),
       }),
+      {
+        brief: message`session activity 조회`,
+        description:
+          message`activity: working | blocked(사용자 입력 대기) | quiescent | not_live(pane 없음) | unknown`,
+      },
     ),
     (value) => ({ kind: "status" as const, ...value }),
   );
@@ -174,10 +232,25 @@ function parser() {
       "wait",
       object({
         target: argument(string({ metavar: "SESSION_ID" }), {}),
-        timeoutMs: withDefault(option("--timeout", duration), 1_200_000),
-        callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
-        name: optional(option("--name", string({ metavar: "NAME" }))),
+        timeoutMs: withDefault(
+          option("--timeout", duration, {
+            description: message`대기·자동 정리를 합친 전체 상한`,
+          }),
+          1_200_000,
+        ),
+        callerId: optional(option("--caller-id", string({ metavar: "ID" }), {
+          description: message`prompt와 동일. 자동 정리 판별에 사용`,
+        })),
+        name: optional(option("--name", string({ metavar: "NAME" }), {
+          description:
+            message`Codex 전용. prompt가 중단돼 이름을 못 붙였으면 같은 값 재전달`,
+        })),
       }),
+      {
+        brief: message`실행 중 session 완료 대기`,
+        description:
+          message`마지막 사람 prompt 이후 result 반환. 완료·정리·오류 의미는 prompt와 동일`,
+      },
     ),
     (value) => ({ kind: "wait" as const, ...value }),
   );
@@ -186,8 +259,18 @@ function parser() {
       "logs",
       object({
         target: argument(string({ metavar: "SESSION_ID" }), {}),
-        lines: withDefault(option("--lines", integer({ min: 1 })), 200),
+        lines: withDefault(
+          option("--lines", integer({ min: 1 }), {
+            description: message`result 마지막 N줄`,
+          }),
+          200,
+        ),
       }),
+      {
+        brief: message`native 기록의 사람·최종 assistant 대화 렌더`,
+        description:
+          message`pane 화면이 아닌 native 기록 기준이라 pane 종료 뒤에도 사용 가능`,
+      },
     ),
     (value) => ({ kind: "logs" as const, ...value }),
   );
@@ -196,8 +279,15 @@ function parser() {
       "close",
       object({
         target: argument(string({ metavar: "SESSION_ID" }), {}),
-        callerId: optional(option("--caller-id", string({ metavar: "ID" }))),
+        callerId: optional(option("--caller-id", string({ metavar: "ID" }), {
+          description: message`prompt와 동일. 탭 이름과 다르면 unmanaged_tab`,
+        })),
       }),
+      {
+        brief: message`실행 중이면 취소한 뒤 pane과 빈 탭 정리`,
+        description:
+          message`prompt·wait가 자동 정리하지 못했거나 작업을 중단할 때 사용. pane 잠금 대기는 최대 60초이며 초과 시 timeout`,
+      },
     ),
     (value) => ({ kind: "close" as const, ...value }),
   );
@@ -214,6 +304,11 @@ export async function runDelegate(
   try {
     parsed = run(parser(), {
       programName: "delegate",
+      brief: message`Codex·Claude native session 위임`,
+      description:
+        message`출력은 YAML 문서. session_id, agent, activity, completed_turns, result, error, warnings, retry 필드`,
+      footer:
+        message`exit code: 2 usage, 3 환경·session 없음, 4 사용자 조치 필요, 5 실패, 6 timeout, 130 중단`,
       args,
       stdout: (text) => parserStdout.push(text),
       stderr: (text) => parserStderr.push(text),
