@@ -93,7 +93,9 @@ export function parseCodexSession(
   let active: {
     id: string;
     context: boolean;
-    prompt: string;
+    metadataPrompt?: string;
+    fallbackPrompt: string;
+    sawPromptMetadata: boolean;
     assistant: string[];
     start: number;
   } | undefined;
@@ -116,7 +118,8 @@ export function parseCodexSession(
       active = {
         id,
         context: false,
-        prompt: "",
+        fallbackPrompt: "",
+        sawPromptMetadata: false,
         assistant: [],
         start: record.start,
       };
@@ -136,7 +139,16 @@ export function parseCodexSession(
       payload.type === "message"
     ) {
       const text = messageText(payload.content);
-      if (payload.role === "user") active.prompt = text;
+      if (payload.role === "user") {
+        const kinds = asObject(
+          payload.internal_chat_message_metadata_passthrough,
+        ).content_item_kinds;
+        if (Array.isArray(kinds)) {
+          active.sawPromptMetadata = true;
+          if (kinds.includes("user.text")) active.metadataPrompt = text;
+        }
+        active.fallbackPrompt = text;
+      }
       if (payload.role === "assistant" && text !== "") {
         active.assistant.push(text);
       }
@@ -149,7 +161,9 @@ export function parseCodexSession(
     ) {
       const completed = payload.type === "task_complete";
       turns.push({
-        prompt: active.prompt,
+        prompt: active.sawPromptMetadata
+          ? active.metadataPrompt ?? ""
+          : active.fallbackPrompt,
         ...(completed && active.assistant.length > 0
           ? { assistant: active.assistant.at(-1) }
           : {}),
@@ -162,7 +176,9 @@ export function parseCodexSession(
   }
   if (active?.context === true) {
     turns.push({
-      prompt: active.prompt,
+      prompt: active.sawPromptMetadata
+        ? active.metadataPrompt ?? ""
+        : active.fallbackPrompt,
       completed: false,
       start: active.start,
       end: records.at(-1)?.end ?? active.start,

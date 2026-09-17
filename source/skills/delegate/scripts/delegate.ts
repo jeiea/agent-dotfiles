@@ -200,7 +200,9 @@ permission_escalation: 종료 session의 write 재개에 --confirm-escalation �
 
 live_session_ambiguous: 같은 session의 다른 재개 진행 중. 완료 뒤 재시도
 
-timeout: --timeout 초과. session은 계속 실행될 수 있으니 status 확인
+session_id_unavailable: Herdr가 native session ID를 보고하지 않음. 전달 확인 gate timeout 뒤라면 prompt가 전달됐을 수 있어 caller ID 라벨의 pane을 보존하므로 직접 확인·정리
+
+timeout: --timeout 초과. 확인된 session ID가 있으면 status 확인. 전달 확인 gate timeout 뒤라면 caller ID 라벨의 pane을 직접 확인·정리
 
 warnings[].code 대응 (마크다운 본문은 유효)
 

@@ -11,14 +11,14 @@ import {
   normalizeError,
 } from "./document.ts";
 import {
-  captureBaseline,
   cursorEquals,
   findNativeSession,
-  identifyPromptSession,
   latestHumanBoundary,
+  type NativeCursor,
   outcomeAfter,
   type PromptOutcome,
   refreshNativeSession,
+  sessionIdPattern,
   type SharedSession,
 } from "./native_session.ts";
 import type { Exec, ExecResult } from "./process.ts";
@@ -58,6 +58,7 @@ type LiveAgent = {
   cwd?: string;
   status: string;
   sequence?: string;
+  sessionKind?: string;
   sessionId?: string;
   workspaceId?: string;
   tabId?: string;
@@ -78,7 +79,12 @@ type PaneOwnership =
 
 type CleanupWarning = NonNullable<DelegateDocument["warnings"]>[number];
 
+class RetainPaneError extends DelegateError {}
+
 const paneLockWaitMs = 60_000;
+const activityGateMs = 30_000;
+const identityPollMs = 5_000;
+const recoveryMs = 500;
 
 export async function promptHerdr(
   request: HerdrPrompt,
@@ -87,7 +93,13 @@ export async function promptHerdr(
   const executionDeps = promptExecutionDeps(deps, request.timeoutMs);
   const deadline = executionDeps.now() + request.timeoutMs;
   const expected = request.snapshot;
-  let confirmedSessionId = expected?.sessionId;
+  const expectedSessionId = expected?.sessionId;
+  const assignedSessionId = expected == null &&
+      request.invocation.agent === "claude"
+    ? crypto.randomUUID()
+    : undefined;
+  const knownSessionId = expectedSessionId ?? assignedSessionId;
+  let confirmedSessionId = knownSessionId;
   let retry: RetryRecord | undefined;
   let live = expected == null
     ? undefined
@@ -120,7 +132,8 @@ export async function promptHerdr(
     expected?.sessionId,
   );
   try {
-    let baseline: Awaited<ReturnType<typeof captureBaseline>>;
+    let snapshot: SharedSession;
+    let boundaryCursor: NativeCursor | undefined;
     if (live == null) {
       if (callerId == null) {
         throw new DelegateError(
@@ -129,7 +142,7 @@ export async function promptHerdr(
         );
       }
       const started = await withPaneLock(
-        { deadline, deps: executionDeps, sessionId: expected?.sessionId },
+        { deadline, deps: executionDeps, sessionId: knownSessionId },
         async () => {
           const concurrent = expected == null
             ? undefined
@@ -142,52 +155,92 @@ export async function promptHerdr(
               expected?.sessionId,
             );
           }
-          const agentStart = await withSessionError(
-            startAgent(request, callerId, deadline, executionDeps),
-            expected?.sessionId,
-          );
+          let ownership: PaneOwnership = { kind: "none" };
+          let ownedCwd = expected?.cwd ?? request.cwd;
+          let startRetry: RetryRecord | undefined;
           try {
-            const submitted = await submitPrompt(
+            const agentStart = await withSessionError(
+              startAgent(
+                request,
+                callerId,
+                assignedSessionId,
+                deadline,
+                executionDeps,
+                (allocated, cwd) => {
+                  ownership = allocated;
+                  ownedCwd = cwd;
+                },
+              ),
+              knownSessionId,
+            );
+            startRetry = agentStart.retry;
+            const submitted = await submitPromptOnly(
               request,
               agentStart.live,
+              "started",
+              knownSessionId,
               deadline,
               executionDeps,
             );
-            return { ...submitted, retry: agentStart.retry };
-          } catch (error) {
-            const preserved = copyDelegateError(normalizeError(error), {
+            return {
+              ...submitted,
+              ownership,
+              ownedCwd,
               retry: agentStart.retry,
+            };
+          } catch (error) {
+            const retainPane = error instanceof RetainPaneError;
+            const preserved = copyDelegateError(normalizeError(error), {
+              retry: startRetry,
             });
-            await cleanupOwnedPane(
-              agentStart.ownership,
-              agentStart.live.cwd ?? request.cwd,
-              deadline,
-              executionDeps,
-            ).catch(() => {});
+            if (!retainPane && preserved.code !== "agent_blocked") {
+              await recoverOwnedPane(ownership, ownedCwd, deps).catch(() => {});
+            }
             throw preserved;
           }
         },
       );
-      live = started.live;
-      baseline = started.baseline;
+      let submitted: Awaited<ReturnType<typeof identifySubmittedPrompt>>;
+      try {
+        submitted = await identifySubmittedPrompt(
+          request,
+          started,
+          knownSessionId,
+          deadline,
+          executionDeps,
+        );
+      } catch (error) {
+        const retainPane = error instanceof RetainPaneError ||
+          started.deliveryUncertain;
+        const preserved = copyDelegateError(normalizeError(error), {
+          retry: started.retry,
+        });
+        if (!retainPane && preserved.code !== "agent_blocked") {
+          await recoverOwnedPane(
+            started.ownership,
+            started.ownedCwd,
+            deps,
+          ).catch(() => {});
+        }
+        throw preserved;
+      }
+      live = submitted.live;
+      snapshot = submitted.snapshot;
+      boundaryCursor = submitted.boundaryCursor;
       retry = started.retry;
     } else {
-      const submitted = await submitPrompt(
+      const submitted = await submitAndIdentify(
         request,
         live,
+        "existing",
+        knownSessionId,
         deadline,
         executionDeps,
       );
       live = submitted.live;
-      baseline = submitted.baseline;
+      snapshot = submitted.snapshot;
+      boundaryCursor = submitted.boundaryCursor;
     }
-    const snapshot = await waitForPrompt(
-      request,
-      baseline,
-      live,
-      deadline,
-      executionDeps,
-    );
     confirmedSessionId = snapshot.sessionId;
     const deterministic = deterministicName(snapshot.sessionId);
     if (live.name !== deterministic) {
@@ -220,13 +273,17 @@ export async function promptHerdr(
     live.kind = snapshot.agent;
     live.cwd = snapshot.cwd;
 
-    const offset = baseline.get(snapshot.path)?.byteLength ?? 0;
     const settled = await waitForQuiescence(
       snapshot,
       live,
       deadline,
       executionDeps,
     );
+    const offset = boundaryCursor != null &&
+        boundaryCursor.path === settled.snapshot.cursor.path &&
+        boundaryCursor.identity === settled.snapshot.cursor.identity
+      ? boundaryCursor.byteLength
+      : 0;
     if (settled.snapshot.agent === "codex" && request.name != null) {
       await renameCodex(
         live,
@@ -249,7 +306,7 @@ export async function promptHerdr(
       {
         outcome: outcomeAfter(settled.snapshot, {
           offset,
-          prompt: request.invocation.prompt,
+          excludeInitialTurn: true,
         }),
         warnings,
         retry,
@@ -293,6 +350,7 @@ export async function waitHerdr(
   const live = await findLiveAgent(snapshot, deps);
   if (live == null) return document(snapshot, "not_live");
   const deadline = deps.now() + options.timeoutMs;
+  const boundaryCursor = snapshot.cursor;
   const boundary = latestHumanBoundary(snapshot);
   const settled = await waitForQuiescence(snapshot, live, deadline, deps);
   const callerId = await withSessionError(
@@ -312,7 +370,16 @@ export async function waitHerdr(
   return document(
     settled.snapshot,
     "quiescent",
-    { outcome: outcomeAfter(settled.snapshot, boundary), warnings },
+    {
+      outcome: outcomeAfter(settled.snapshot, {
+        ...boundary,
+        offset: boundaryCursor.path === settled.snapshot.cursor.path &&
+            boundaryCursor.identity === settled.snapshot.cursor.identity
+          ? boundary.offset
+          : 0,
+      }),
+      warnings,
+    },
   );
 }
 
@@ -347,8 +414,12 @@ export async function closeHerdr(
       "ctrl+c",
     ]);
     try {
-      await getAgent(live, snapshot.cwd, deps);
-    } catch {
+      await getAgent(live, snapshot.cwd, deps, snapshot.sessionId);
+    } catch (error) {
+      if (
+        error instanceof DelegateError &&
+        ["session_id_changed", "invalid_native_session"].includes(error.code)
+      ) throw error;
       // 취소 직후 agent가 사라지는 것은 정상적인 정리 경로다.
     }
   }
@@ -379,31 +450,182 @@ export async function closeHerdr(
 async function submitPrompt(
   request: HerdrPrompt,
   live: LiveAgent,
+  origin: "started" | "existing",
+  deadline: number,
+  deps: HerdrDeps,
+): Promise<{ live: LiveAgent; deliveryUncertain: boolean }> {
+  ensureTime(deadline, deps, request.snapshot?.sessionId);
+  if (origin === "existing" && live.status === "blocked") {
+    throw new DelegateError(
+      "agent_blocked",
+      "에이전트가 사용자 입력을 기다립니다",
+      undefined,
+      live.sessionId ?? request.snapshot?.sessionId,
+    );
+  }
+  const activityGate = origin === "started" ||
+    ["idle", "done"].includes(live.status);
+  let prompted: HerdrResult;
+  try {
+    prompted = await withSessionError(
+      json(live.cwd ?? request.snapshot?.cwd ?? request.cwd, deps, [
+        "agent",
+        "prompt",
+        live.name,
+        request.invocation.prompt,
+        ...(activityGate
+          ? [
+            "--wait",
+            "--until",
+            "working",
+            "--until",
+            "blocked",
+            "--timeout",
+            String(
+              Math.max(
+                1,
+                Math.floor(
+                  Math.min(activityGateMs, remaining(deadline, deps)),
+                ),
+              ),
+            ),
+          ]
+          : []),
+      ]),
+      request.snapshot?.sessionId,
+    );
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (origin === "started" && normalized.code === "timeout") {
+      return { live, deliveryUncertain: true };
+    }
+    if (normalized.code !== "agent_blocked") throw normalized;
+    return {
+      live: { ...live, status: "blocked" },
+      deliveryUncertain: false,
+    };
+  }
+  const promptedAgent = objectValue(prompted.agent);
+  const result = Object.keys(promptedAgent).length === 0
+    ? live
+    : mergeReportedLive(live, liveFrom(promptedAgent, live.name));
+  return { live: result, deliveryUncertain: false };
+}
+
+type SubmittedPrompt = {
+  live: LiveAgent;
+  boundaryCursor?: NativeCursor;
+  awaitNewTurn: boolean;
+  deliveryUncertain: boolean;
+};
+
+async function submitPromptOnly(
+  request: HerdrPrompt,
+  live: LiveAgent,
+  origin: "started" | "existing",
+  knownSessionId: string | undefined,
+  deadline: number,
+  deps: HerdrDeps,
+): Promise<SubmittedPrompt> {
+  readReportedSessionId(live, knownSessionId);
+  const before = request.snapshot == null
+    ? undefined
+    : (await refreshNativeSession(request.snapshot)).cursor;
+  const statusBeforePrompt = live.status;
+  const prompted = await submitPrompt(request, live, origin, deadline, deps);
+  return {
+    live: prompted.live,
+    boundaryCursor: before,
+    awaitNewTurn: origin === "existing" &&
+      ["working", "unknown"].includes(statusBeforePrompt),
+    deliveryUncertain: prompted.deliveryUncertain,
+  };
+}
+
+async function identifySubmittedPrompt(
+  request: HerdrPrompt,
+  submitted: SubmittedPrompt,
+  knownSessionId: string | undefined,
   deadline: number,
   deps: HerdrDeps,
 ): Promise<{
-  baseline: Awaited<ReturnType<typeof captureBaseline>>;
   live: LiveAgent;
+  snapshot: SharedSession;
+  boundaryCursor?: NativeCursor;
 }> {
-  ensureTime(deadline, deps, request.snapshot?.sessionId);
-  const baseline = await captureBaseline(deps.env, request.invocation.agent);
-  ensureTime(deadline, deps, request.snapshot?.sessionId);
-  const prompted = await withSessionError(
-    json(live.cwd ?? request.snapshot?.cwd ?? request.cwd, deps, [
-      "agent",
-      "prompt",
-      live.name,
-      request.invocation.prompt,
-    ]),
-    request.snapshot?.sessionId,
-  );
-  const promptedAgent = objectValue(prompted.agent);
+  const prompted = submitted.live;
+  let identified: SharedSession;
+  try {
+    identified = await waitForNativeSession(
+      request,
+      prompted,
+      knownSessionId,
+      deadline,
+      deps,
+    );
+  } catch (error) {
+    const normalized = normalizeError(error);
+    if (prompted.status === "blocked") {
+      throw new RetainPaneError(
+        normalized.code,
+        normalized.message,
+        normalized.blockers,
+        normalized.sessionId,
+        normalized.retry,
+      );
+    }
+    throw normalized;
+  }
+  if (prompted.status === "blocked") {
+    throw new DelegateError(
+      "agent_blocked",
+      "에이전트가 사용자 입력을 기다립니다",
+      undefined,
+      identified.sessionId,
+    );
+  }
+  if (submitted.awaitNewTurn) {
+    identified = await waitForNewTurn(
+      identified,
+      submitted.boundaryCursor,
+      deadline,
+      deps,
+    );
+  }
   return {
-    baseline,
-    live: Object.keys(promptedAgent).length === 0
-      ? live
-      : { ...live, ...liveFrom(promptedAgent, live.name) },
+    live: prompted,
+    snapshot: identified,
+    boundaryCursor: submitted.boundaryCursor,
   };
+}
+
+async function submitAndIdentify(
+  request: HerdrPrompt,
+  live: LiveAgent,
+  origin: "started" | "existing",
+  knownSessionId: string | undefined,
+  deadline: number,
+  deps: HerdrDeps,
+): Promise<{
+  live: LiveAgent;
+  snapshot: SharedSession;
+  boundaryCursor?: NativeCursor;
+}> {
+  const submitted = await submitPromptOnly(
+    request,
+    live,
+    origin,
+    knownSessionId,
+    deadline,
+    deps,
+  );
+  return await identifySubmittedPrompt(
+    request,
+    submitted,
+    knownSessionId,
+    deadline,
+    deps,
+  );
 }
 
 async function withPaneLock<T>(
@@ -463,11 +685,12 @@ async function withPaneLock<T>(
 async function startAgent(
   request: HerdrPrompt,
   callerId: string,
+  assignedSessionId: string | undefined,
   deadline: number,
   deps: HerdrDeps,
+  allocated: (ownership: PaneOwnership, cwd: string) => void,
 ): Promise<{
   live: ManagedPane;
-  ownership: PaneOwnership;
   retry?: RetryRecord;
 }> {
   const cwd = request.snapshot?.cwd ?? request.cwd;
@@ -476,6 +699,7 @@ async function startAgent(
     callerId,
     request.snapshot?.sessionId,
     deps,
+    (ownership) => allocated(ownership, cwd),
   );
   const name = request.snapshot == null
     ? `dlg-tmp-${crypto.randomUUID().slice(0, 8)}`
@@ -489,11 +713,14 @@ async function startAgent(
         [callerId, request.name].filter((part) => part != null && part !== "")
           .join(" ")
       }`,
+      ...(assignedSessionId == null
+        ? []
+        : [`--session-id=${assignedSessionId}`]),
     ]
     : request.invocation.herdrArgs;
-  const start = () => {
+  const start = async () => {
     ensureTime(deadline, deps, request.snapshot?.sessionId);
-    return json(cwd, deps, [
+    const result = await json(cwd, deps, [
       "agent",
       "start",
       name,
@@ -503,16 +730,21 @@ async function startAgent(
       pane.paneId,
       "--timeout",
       String(
-        Math.max(1, Math.floor(Math.min(30_000, remaining(deadline, deps)))),
+        Math.max(
+          1,
+          Math.floor(Math.min(activityGateMs, remaining(deadline, deps))),
+        ),
       ),
       "--",
       ...herdrArgs,
     ]);
+    return agentFromResult(result, name);
   };
   let retry: RetryRecord | undefined;
+  let started: LiveAgent;
   try {
     try {
-      await start();
+      started = await start();
     } catch (error) {
       const normalized = normalizeError(error);
       if (
@@ -526,7 +758,7 @@ async function startAgent(
       };
       try {
         await pause(100, deps, request.snapshot?.sessionId);
-        await start();
+        started = await start();
         retry = { reason, result: "success" };
       } catch (retryError) {
         throw copyDelegateError(normalizeError(retryError), {
@@ -535,71 +767,138 @@ async function startAgent(
       }
     }
   } catch (error) {
-    const preserved = normalizeError(error);
-    await cleanupOwnedPane(ownership, cwd, deadline, deps).catch(() => {});
-    throw preserved;
+    throw normalizeError(error);
   }
   return {
-    live: {
+    live: mergeReportedLive({
       ...pane,
       name,
       kind: request.invocation.agent,
       cwd,
       status: "unknown",
-      sessionId: request.snapshot?.sessionId,
-    },
-    ownership,
+    }, started) as ManagedPane,
     retry,
   };
 }
 
-async function waitForPrompt(
+async function waitForNativeSession(
   request: HerdrPrompt,
-  baseline: Awaited<ReturnType<typeof captureBaseline>>,
-  live: LiveAgent,
+  initialLive: LiveAgent,
+  knownSessionId: string | undefined,
   deadline: number,
   deps: HerdrDeps,
 ): Promise<SharedSession> {
-  let confirmedSessionId = request.snapshot?.sessionId;
-  while (true) {
-    if (confirmedSessionId == null && live.sessionId != null) {
+  ensureTime(deadline, deps, knownSessionId);
+  const pollDeadline = Math.min(deadline, deps.now() + identityPollMs);
+  let live = initialLive;
+  let reportedSessionId: string | undefined;
+  while (remaining(pollDeadline, deps) > 0) {
+    ensureTime(deadline, deps, reportedSessionId ?? knownSessionId);
+    if (live.sessionId == null) {
+      live = await withSessionError(
+        getAgent(
+          live,
+          request.snapshot?.cwd ?? request.cwd,
+          deps,
+          knownSessionId,
+        ),
+        knownSessionId,
+      );
+    }
+    reportedSessionId = readReportedSessionId(live, knownSessionId);
+    const candidateSessionId = reportedSessionId ?? knownSessionId;
+    if (candidateSessionId != null) {
       try {
-        const reported = await findNativeSession(live.sessionId, deps.env);
+        const snapshot = await findNativeSession(candidateSessionId, deps.env);
         if (
-          reported.agent !== request.invocation.agent ||
-          reported.cwd !== (request.snapshot?.cwd ?? request.cwd)
+          snapshot.agent !== request.invocation.agent ||
+          snapshot.cwd !== (request.snapshot?.cwd ?? request.cwd)
         ) {
           throw new DelegateError(
             "invalid_native_session",
             "Herdr session 정보와 native session metadata가 다릅니다",
+            undefined,
+            candidateSessionId,
           );
         }
-        confirmedSessionId = reported.sessionId;
+        return snapshot;
       } catch (error) {
         if (
           !(error instanceof DelegateError &&
             error.code === "session_not_found")
-        ) {
-          throw error;
-        }
+        ) throw error;
       }
     }
-    ensureTime(deadline, deps, confirmedSessionId);
-    const snapshot = await identifyPromptSession(
-      deps.env,
-      request.invocation.agent,
-      baseline,
-      request.invocation.prompt,
-      request.snapshot?.sessionId,
-      live.sessionId,
+    await pause(
+      Math.min(250, remaining(pollDeadline, deps)),
+      deps,
+      reportedSessionId ?? knownSessionId,
     );
-    ensureTime(deadline, deps, confirmedSessionId ?? snapshot?.sessionId);
-    if (snapshot != null) return snapshot;
+  }
+  ensureTime(deadline, deps, reportedSessionId ?? knownSessionId);
+  const candidateSessionId = reportedSessionId ?? knownSessionId;
+  if (candidateSessionId == null) {
+    throw new DelegateError(
+      "session_id_unavailable",
+      "Herdr가 native session ID를 보고하지 않았습니다",
+    );
+  }
+  throw new DelegateError(
+    "invalid_native_session",
+    `native session을 찾을 수 없습니다: ${candidateSessionId}`,
+    undefined,
+    candidateSessionId,
+  );
+}
+
+function readReportedSessionId(
+  live: LiveAgent,
+  knownSessionId: string | undefined,
+): string | undefined {
+  if (live.sessionId == null) return undefined;
+  if (live.sessionKind !== "id" || !sessionIdPattern.test(live.sessionId)) {
+    throw new DelegateError(
+      "invalid_native_session",
+      "Herdr가 올바른 native session ID를 보고하지 않았습니다",
+      undefined,
+      knownSessionId,
+    );
+  }
+  if (
+    knownSessionId != null &&
+    live.sessionId.toLowerCase() !== knownSessionId.toLowerCase()
+  ) {
+    throw new DelegateError(
+      "session_id_changed",
+      `session ID 변경: ${knownSessionId} -> ${live.sessionId}`,
+      undefined,
+      knownSessionId,
+    );
+  }
+  return live.sessionId;
+}
+
+async function waitForNewTurn(
+  initial: SharedSession,
+  before: NativeCursor | undefined,
+  deadline: number,
+  deps: HerdrDeps,
+): Promise<SharedSession> {
+  if (before == null) return initial;
+  let snapshot = initial;
+  while (true) {
+    ensureTime(deadline, deps, snapshot.sessionId);
+    const offset = before.path === snapshot.cursor.path &&
+        before.identity === snapshot.cursor.identity
+      ? before.byteLength
+      : 0;
+    if (snapshot.turns.some((turn) => turn.start >= offset)) return snapshot;
     await pause(
       Math.min(250, remaining(deadline, deps)),
       deps,
-      confirmedSessionId,
+      snapshot.sessionId,
     );
+    snapshot = await refreshNativeSession(snapshot);
   }
 }
 
@@ -629,6 +928,7 @@ async function waitForQuiescence(
       snapshot.sessionId,
     );
     const candidate = agentFromResult(waited, live.name);
+    readReportedSessionId(candidate, snapshot.sessionId);
     if (candidate.status === "blocked") {
       throw new DelegateError(
         "agent_blocked",
@@ -656,7 +956,7 @@ async function waitForQuiescence(
     );
     ensureTime(deadline, deps, snapshot.sessionId);
     const checked = await withSessionError(
-      getAgent(live, snapshot.cwd, deps),
+      getAgent(live, snapshot.cwd, deps, snapshot.sessionId),
       snapshot.sessionId,
     );
     if (checked.status === "blocked") {
@@ -717,15 +1017,7 @@ async function findLiveAgent(
     );
   }
   const live = liveFrom(candidates[0]!);
-  if (
-    live.sessionId != null &&
-    live.sessionId.toLowerCase() !== snapshot.sessionId.toLowerCase()
-  ) {
-    throw new DelegateError(
-      "live_session_ambiguous",
-      "live agent session ID 불일치",
-    );
-  }
+  readReportedSessionId(live, snapshot.sessionId);
   if (live.kind != null && live.kind !== snapshot.agent) {
     throw new DelegateError("live_session_ambiguous", "live agent 종류 불일치");
   }
@@ -739,9 +1031,12 @@ async function getAgent(
   live: LiveAgent,
   cwd: string,
   deps: HerdrDeps,
+  knownSessionId: string | undefined,
 ): Promise<LiveAgent> {
   const result = await json(cwd, deps, ["agent", "get", live.name]);
-  return { ...live, ...agentFromResult(result, live.name) };
+  const reported = agentFromResult(result, live.name);
+  readReportedSessionId(reported, knownSessionId);
+  return mergeReportedLive(live, reported);
 }
 
 function agentFromResult(result: HerdrResult, fallbackName: string): LiveAgent {
@@ -757,6 +1052,7 @@ async function allocatePane(
   callerId: string,
   sessionId: string | undefined,
   deps: HerdrDeps,
+  allocated: (ownership: PaneOwnership) => void,
 ): Promise<
   Pick<ManagedPane, "workspaceId" | "tabId" | "paneId" | "callerId"> & {
     ownership: PaneOwnership;
@@ -817,6 +1113,13 @@ async function allocatePane(
         "Herdr 탭 생성 응답이 불완전합니다",
       );
     }
+    const ownership: PaneOwnership = {
+      kind: "tab",
+      workspaceId,
+      paneId,
+      tabId,
+    };
+    allocated(ownership);
     const verified = (await listTabs(workspaceId, cwd, deps)).filter((tab) =>
       tab.label === callerId && tab.tabId === tabId
     );
@@ -831,7 +1134,7 @@ async function allocatePane(
       tabId,
       paneId,
       callerId,
-      ownership: { kind: "tab", workspaceId, paneId, tabId },
+      ownership,
     };
   }
   const tabId = candidates[0]!.tabId;
@@ -840,12 +1143,14 @@ async function allocatePane(
   );
   const available = panes.find((pane) => pane.agentName == null);
   if (available != null) {
+    const ownership: PaneOwnership = { kind: "none" };
+    allocated(ownership);
     return {
       workspaceId,
       tabId,
       paneId: available.paneId,
       callerId,
-      ownership: { kind: "none" },
+      ownership,
     };
   }
   const anchor = panes.at(-1)?.paneId;
@@ -867,12 +1172,14 @@ async function allocatePane(
   if (paneId == null) {
     throw new DelegateError("herdr_failed", "pane 분할 응답이 불완전합니다");
   }
+  const ownership: PaneOwnership = { kind: "pane", paneId };
+  allocated(ownership);
   return {
     workspaceId,
     tabId,
     paneId,
     callerId,
-    ownership: { kind: "pane", paneId },
+    ownership,
   };
 }
 
@@ -922,6 +1229,27 @@ async function cleanupOwnedPane(
     }
   }
   if (paneCloseError != null) throw paneCloseError;
+}
+
+async function recoverOwnedPane(
+  ownership: PaneOwnership,
+  cwd: string,
+  deps: HerdrDeps,
+): Promise<void> {
+  if (ownership.kind === "none") return;
+  const recoveryDeps: HerdrDeps = {
+    exec: deps.exec,
+    env: deps.env,
+    signal: AbortSignal.timeout(recoveryMs),
+    now: deps.now,
+    sleep: deps.sleep,
+  };
+  await cleanupOwnedPane(
+    ownership,
+    cwd,
+    recoveryDeps.now() + recoveryMs,
+    recoveryDeps,
+  );
 }
 
 async function cleanupAutomatically(
@@ -1224,12 +1552,38 @@ function liveFrom(
     sequence: value.state_change_seq == null
       ? undefined
       : String(value.state_change_seq),
+    sessionKind: stringValue(session.kind),
     sessionId: stringValue(session.value),
     workspaceId: stringValue(value.workspace_id) ??
       stringValue(pane.workspace_id),
     tabId: stringValue(value.tab_id) ?? stringValue(pane.tab_id),
     paneId: stringValue(value.pane_id) ?? stringValue(pane.pane_id),
   };
+}
+
+function mergeLive(base: LiveAgent, update: LiveAgent): LiveAgent {
+  return {
+    ...base,
+    ...Object.fromEntries(
+      Object.entries(update).filter(([, value]) => value !== undefined),
+    ),
+  };
+}
+
+function mergeReportedLive(base: LiveAgent, update: LiveAgent): LiveAgent {
+  if (
+    update.name !== base.name ||
+    (base.paneId != null && update.paneId != null &&
+      update.paneId !== base.paneId)
+  ) {
+    throw new DelegateError(
+      "live_session_ambiguous",
+      "Herdr 응답의 agent 또는 pane이 전송 대상과 다릅니다",
+      undefined,
+      base.sessionId,
+    );
+  }
+  return mergeLive(base, update);
 }
 
 function nameOf(value: Record<string, unknown>): string | undefined {

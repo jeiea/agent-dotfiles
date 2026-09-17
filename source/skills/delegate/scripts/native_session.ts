@@ -36,13 +36,8 @@ export type PromptOutcome = {
 
 export type PromptBoundary = {
   offset: number;
-  prompt?: string;
+  excludeInitialTurn: boolean;
 };
-
-export type NativeBaseline = Map<
-  string,
-  Pick<NativeCursor, "identity" | "byteLength">
->;
 
 type Candidate = { agent: Agent; path: string; root: string };
 
@@ -80,135 +75,6 @@ export async function findNativeSession(
   return await readSnapshot(candidates[0]!);
 }
 
-export async function captureBaseline(
-  env: Record<string, string>,
-  agent: Agent,
-): Promise<NativeBaseline> {
-  const baseline: NativeBaseline = new Map();
-  for (const candidate of await listCandidates(env, agent)) {
-    try {
-      const cursor = await readCursor(candidate);
-      baseline.set(cursor.path, {
-        identity: cursor.identity,
-        byteLength: cursor.byteLength,
-      });
-    } catch {
-      // 신규 session baseline에서 무관한 손상 후보는 식별 대상이 아니다.
-    }
-  }
-  return baseline;
-}
-
-export async function identifyPromptSession(
-  env: Record<string, string>,
-  agent: Agent,
-  baseline: NativeBaseline,
-  prompt: string,
-  expectedSessionId?: string,
-  reportedSessionId?: string,
-): Promise<SharedSession | undefined> {
-  const matches: SharedSession[] = [];
-  for (const candidate of await listCandidates(env, agent)) {
-    let cursor: NativeCursor;
-    try {
-      cursor = await readCursor(candidate);
-    } catch (error) {
-      if (isExpectedCandidate(candidate, expectedSessionId)) throw error;
-      continue;
-    }
-    const before = baseline.get(cursor.path);
-    const sameFile = before?.identity === cursor.identity;
-    const offset = sameFile ? before?.byteLength ?? 0 : 0;
-    if (sameFile && cursor.byteLength <= offset) continue;
-    let snapshot: SharedSession;
-    try {
-      snapshot = await readSnapshot(candidate);
-    } catch (error) {
-      if (isExpectedCandidate(candidate, expectedSessionId)) throw error;
-      continue;
-    }
-    if (
-      snapshot.cursor.byteLength > offset &&
-      snapshot.turns.some((turn) =>
-        turn.start >= offset && turn.prompt === prompt
-      )
-    ) matches.push(snapshot);
-  }
-  if (expectedSessionId != null) {
-    const changed = matches.find((match) =>
-      match.sessionId.toLowerCase() !== expectedSessionId.toLowerCase()
-    );
-    if (changed != null) {
-      throw new DelegateError(
-        "session_id_changed",
-        `resume session ID 변경: ${expectedSessionId} -> ${changed.sessionId}`,
-      );
-    }
-  }
-  if (reportedSessionId != null) {
-    assertSessionId(reportedSessionId);
-    if (
-      expectedSessionId != null &&
-      reportedSessionId.toLowerCase() !== expectedSessionId.toLowerCase()
-    ) {
-      throw new DelegateError(
-        "session_id_changed",
-        `resume session ID 변경: ${expectedSessionId} -> ${reportedSessionId}`,
-      );
-    }
-    return matches.find((match) =>
-      match.sessionId.toLowerCase() === reportedSessionId.toLowerCase()
-    );
-  }
-  if (expectedSessionId != null) {
-    return matches.find((match) =>
-      match.sessionId.toLowerCase() === expectedSessionId.toLowerCase()
-    );
-  }
-  if (matches.length > 1) {
-    throw new DelegateError(
-      "session_id_unavailable",
-      "prompt와 일치하는 native session 후보가 복수입니다",
-    );
-  }
-  return matches[0];
-}
-
-async function readCursor(candidate: Candidate): Promise<NativeCursor> {
-  const root = await realPathOrSelf(candidate.root);
-  const path = await realPathOrSelf(candidate.path);
-  if (!inside(root, path)) {
-    throw new DelegateError(
-      "unsafe_native_path",
-      `native session 경로가 신뢰 root 밖입니다: ${basename(candidate.path)}`,
-    );
-  }
-  const info = await Deno.stat(path);
-  let partial = false;
-  if (info.size > 0) {
-    using file = await Deno.open(path, { read: true });
-    await file.seek(-1, Deno.SeekMode.End);
-    const lastByte = new Uint8Array(1);
-    await file.read(lastByte);
-    partial = lastByte[0] !== 10;
-  }
-  return {
-    path,
-    identity: `${String(info.dev ?? "")}:${String(info.ino ?? path)}`,
-    byteLength: info.size,
-    lastRecord: null,
-    partial,
-  };
-}
-
-function isExpectedCandidate(
-  candidate: Candidate,
-  expectedSessionId: string | undefined,
-): boolean {
-  return expectedSessionId != null &&
-    candidateId(candidate) === expectedSessionId.toLowerCase();
-}
-
 export async function refreshNativeSession(
   snapshot: SharedSession,
 ): Promise<SharedSession> {
@@ -238,12 +104,9 @@ export function outcomeAfter(
   );
   if (resultIndex < 0) return {};
   const concluded = turns.slice(0, resultIndex + 1);
-  const initialIndex = boundary.prompt == null
-    ? -1
-    : concluded.findIndex((turn) => turn.prompt === boundary.prompt);
-  const interveningPrompts = concluded.slice(initialIndex + 1).map((turn) =>
-    stripDelegatePromptPrefix(turn.prompt)
-  );
+  const interveningPrompts = concluded.slice(
+    boundary.excludeInitialTurn ? 1 : 0,
+  ).map((turn) => stripDelegatePromptPrefix(turn.prompt));
   return {
     ...(interveningPrompts.length === 0
       ? {}
@@ -255,8 +118,8 @@ export function outcomeAfter(
 export function latestHumanBoundary(snapshot: SharedSession): PromptBoundary {
   const turn = snapshot.turns.at(-1);
   return turn == null
-    ? { offset: snapshot.cursor.byteLength }
-    : { offset: turn.start, prompt: turn.prompt };
+    ? { offset: snapshot.cursor.byteLength, excludeInitialTurn: false }
+    : { offset: turn.start, excludeInitialTurn: false };
 }
 
 export function renderConversation(snapshot: SharedSession): string {
@@ -363,26 +226,27 @@ function recordIdentity(record: NativeRecord | undefined): string | null {
 
 async function listCandidates(
   env: Record<string, string>,
-  onlyAgent?: Agent,
 ): Promise<Candidate[]> {
   const home = env.HOME;
   const roots: Array<{ agent: Agent; root: string; search: string }> = [];
-  if (onlyAgent == null || onlyAgent === "codex") {
-    const defaultHome = env.OS === "Windows_NT"
-      ? env.USERPROFILE ?? home
-      : home;
-    const root = env.CODEX_HOME ??
-      (defaultHome == null ? undefined : join(defaultHome, ".codex"));
-    if (root != null) {
-      roots.push({ agent: "codex", root, search: join(root, "sessions") });
-    }
+  const defaultHome = env.OS === "Windows_NT" ? env.USERPROFILE ?? home : home;
+  const codexRoot = env.CODEX_HOME ??
+    (defaultHome == null ? undefined : join(defaultHome, ".codex"));
+  if (codexRoot != null) {
+    roots.push({
+      agent: "codex",
+      root: codexRoot,
+      search: join(codexRoot, "sessions"),
+    });
   }
-  if (onlyAgent == null || onlyAgent === "claude") {
-    const root = env.CLAUDE_CONFIG_DIR ??
-      (home == null ? undefined : join(home, ".claude"));
-    if (root != null) {
-      roots.push({ agent: "claude", root, search: join(root, "projects") });
-    }
+  const claudeRoot = env.CLAUDE_CONFIG_DIR ??
+    (home == null ? undefined : join(home, ".claude"));
+  if (claudeRoot != null) {
+    roots.push({
+      agent: "claude",
+      root: claudeRoot,
+      search: join(claudeRoot, "projects"),
+    });
   }
   const candidates: Candidate[] = [];
   for (const spec of roots) {
