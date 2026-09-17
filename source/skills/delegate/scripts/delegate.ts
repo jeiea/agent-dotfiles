@@ -186,7 +186,7 @@ function parser() {
       {
         brief: message`새 native session 시작 또는 기존 session에 후속 prompt`,
         description:
-          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane과 빈 관리 탭을 자동 정리하며 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
+          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane과 빈 관리 탭을 자동 정리하며 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
         footer: message`error.code 대응
 
 agent_blocked: 사용자 입력 대기. pane에서 응답한 뒤 wait
@@ -249,7 +249,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`실행 중 session 완료 대기`,
         description:
-          message`마지막 사람 prompt 이후 result를 마크다운 본문으로 반환. 완료·정리·오류 의미는 prompt와 동일`,
+          message`대기 시작 뒤 추가된 사람 prompt는 intervening_prompts, 마지막 result는 마크다운 본문으로 반환. 완료·정리·오류 의미는 prompt와 동일`,
       },
     ),
     (value) => ({ kind: "wait" as const, ...value }),
@@ -306,7 +306,7 @@ export async function runDelegate(
       programName: "delegate",
       brief: message`Codex·Claude native session 위임`,
       description:
-        message`출력은 YAML 프런트매터와 선택적 마크다운 본문. session_id, agent, activity, completed_turns, error, warnings, retry는 프런트매터, result는 본문`,
+        message`출력은 YAML 프런트매터와 선택적 마크다운 본문. session_id, agent, activity, intervening_prompts, error, warnings, retry는 프런트매터, result는 본문. intervening_prompts는 추가 사람 프롬프트가 있을 때만 반환`,
       footer:
         message`exit code: 2 usage, 3 환경·session 없음, 4 사용자 조치 필요, 5 실패, 6 timeout, 130 중단`,
       args,
@@ -345,7 +345,6 @@ export async function runDelegate(
         return success({
           session_id: snapshot.sessionId,
           agent: snapshot.agent,
-          completed_turns: snapshot.completedTurns,
           result: tail(renderConversation(snapshot), parsed.lines),
         });
       }
@@ -354,7 +353,6 @@ export async function runDelegate(
           session_id: snapshot.sessionId,
           agent: snapshot.agent,
           activity: "not_live",
-          completed_turns: snapshot.completedTurns,
         });
       }
       if (parsed.kind === "status") {
@@ -443,7 +441,6 @@ export async function runDelegate(
         const snapshot = await findNativeSession(knownSessionId, deps.env);
         return failure(normalized, knownSessionId, snapshot.agent, "", {
           activity: "blocked",
-          completed_turns: snapshot.completedTurns,
         });
       } catch {
         // 원래 blocked 진단을 native 재조회 실패로 덮지 않는다.
@@ -598,7 +595,7 @@ function failure(
   sessionId?: string,
   agent?: Agent,
   stderr = "",
-  context: Pick<DelegateDocument, "activity" | "completed_turns"> = {},
+  context: Pick<DelegateDocument, "activity"> = {},
 ) {
   const publicSessionId = sessionId != null && sessionIdPattern.test(sessionId)
     ? sessionId as NativeSessionId

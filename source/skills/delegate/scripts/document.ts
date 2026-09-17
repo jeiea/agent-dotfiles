@@ -34,11 +34,6 @@ export type PublicErrorCode =
   | "timeout"
   | "cancelled";
 
-export type CompletedTurn = {
-  turn_id: string;
-  completed_at?: string;
-};
-
 export type Blocker = {
   pane_id: string;
   agent_name: string | null;
@@ -57,7 +52,7 @@ export type DelegateDocument = {
   session_id?: NativeSessionId;
   agent?: "codex" | "claude";
   activity?: PublicActivity;
-  completed_turns?: CompletedTurn[];
+  intervening_prompts?: string[];
   result?: string;
   error?: {
     code: PublicErrorCode;

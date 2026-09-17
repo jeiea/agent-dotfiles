@@ -6,12 +6,8 @@ import {
   type ParsedSession,
   type ParsedTurn,
 } from "./codex.ts";
-import {
-  type CompletedTurn,
-  DelegateError,
-  type NativeSessionId,
-} from "./document.ts";
-import type { Agent } from "./select.ts";
+import { DelegateError, type NativeSessionId } from "./document.ts";
+import { type Agent, stripDelegatePromptPrefix } from "./select.ts";
 
 export const sessionIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,7 +27,16 @@ export type SharedSession = {
   path: string;
   cursor: NativeCursor;
   turns: ParsedTurn[];
-  completedTurns: CompletedTurn[];
+};
+
+export type PromptOutcome = {
+  result?: string;
+  intervening_prompts?: string[];
+};
+
+export type PromptBoundary = {
+  offset: number;
+  prompt?: string;
 };
 
 export type NativeBaseline = Map<
@@ -223,17 +228,35 @@ export function cursorEquals(
     left.lastRecord === right.lastRecord && left.partial === right.partial;
 }
 
-export function resultAfter(
+export function outcomeAfter(
   snapshot: SharedSession,
-  offset: number,
-): string | undefined {
-  return snapshot.turns.filter((turn) =>
-    turn.start >= offset && turn.completed && turn.assistant != null
-  ).at(-1)?.assistant;
+  boundary: PromptBoundary,
+): PromptOutcome {
+  const turns = snapshot.turns.filter((turn) => turn.start >= boundary.offset);
+  const resultIndex = turns.findLastIndex((turn) =>
+    turn.completed && turn.assistant != null
+  );
+  if (resultIndex < 0) return {};
+  const concluded = turns.slice(0, resultIndex + 1);
+  const initialIndex = boundary.prompt == null
+    ? -1
+    : concluded.findIndex((turn) => turn.prompt === boundary.prompt);
+  const interveningPrompts = concluded.slice(initialIndex + 1).map((turn) =>
+    stripDelegatePromptPrefix(turn.prompt)
+  );
+  return {
+    ...(interveningPrompts.length === 0
+      ? {}
+      : { intervening_prompts: interveningPrompts }),
+    result: turns[resultIndex]!.assistant,
+  };
 }
 
-export function latestHumanOffset(snapshot: SharedSession): number {
-  return snapshot.turns.at(-1)?.start ?? snapshot.cursor.byteLength;
+export function latestHumanBoundary(snapshot: SharedSession): PromptBoundary {
+  const turn = snapshot.turns.at(-1);
+  return turn == null
+    ? { offset: snapshot.cursor.byteLength }
+    : { offset: turn.start, prompt: turn.prompt };
 }
 
 export function renderConversation(snapshot: SharedSession): string {
@@ -293,7 +316,6 @@ async function readSnapshot(candidate: Candidate): Promise<SharedSession> {
       partial,
     },
     turns: parsed.turns,
-    completedTurns: completedTurns(parsed),
   };
 }
 
@@ -323,13 +345,6 @@ function decodeRecords(data: Uint8Array): {
     start = index + 1;
   }
   return { records, partial: start < data.length };
-}
-
-function completedTurns(parsed: ParsedSession): CompletedTurn[] {
-  return parsed.turns.filter((turn) => turn.completed).map((turn) => ({
-    turn_id: turn.id,
-    ...(turn.completedAt == null ? {} : { completed_at: turn.completedAt }),
-  }));
 }
 
 function recordIdentity(record: NativeRecord | undefined): string | null {

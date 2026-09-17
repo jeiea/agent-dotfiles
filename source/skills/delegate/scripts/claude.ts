@@ -1,7 +1,9 @@
 import type { ParsedAgentOutput, ParsedSession } from "./codex.ts";
-import type { NativeInvocation, PlanRequest } from "./select.ts";
-
-const promptPrefix = "delegate 스킬 등 다른 에이전트 재위임 금지.\n\n";
+import {
+  delegatePromptPrefix,
+  type NativeInvocation,
+  type PlanRequest,
+} from "./select.ts";
 
 export function planClaude(request: PlanRequest): NativeInvocation {
   const name = [request.callerId, request.name].filter((part) => part != null)
@@ -41,7 +43,7 @@ export function planClaude(request: PlanRequest): NativeInvocation {
       "-",
     ],
     herdrArgs: shared,
-    prompt: promptPrefix + request.prompt,
+    prompt: delegatePromptPrefix + request.prompt,
   };
 }
 
@@ -73,7 +75,6 @@ export function parseClaudeSession(
   let sessionId: string | undefined;
   let cwd: string | undefined;
   let active: {
-    id: string;
     prompt: string;
     start: number;
     groups: Map<string, { texts: string[]; toolUse: boolean; order: number }>;
@@ -94,10 +95,7 @@ export function parseClaudeSession(
     sessionId ??= stringValue(event.sessionId) ?? stringValue(event.session_id);
     cwd ??= stringValue(event.cwd);
     if (isHumanPrompt(event)) {
-      const uuid = stringValue(event.uuid);
-      if (uuid == null) throw new Error("invalid claude human prompt UUID");
       active = {
-        id: uuid,
         prompt: messageText(asObject(event.message).content),
         start: record.start,
         groups: new Map(),
@@ -132,14 +130,9 @@ export function parseClaudeSession(
         .filter((group) => !group.toolUse && group.texts.length > 0)
         .sort((left, right) => left.order - right.order).at(-1);
       turns.push({
-        id: active.id,
         prompt: active.prompt,
         ...(final == null ? {} : { assistant: final.texts.join("\n") }),
-        ...(typeof event.timestamp === "string"
-          ? { completedAt: event.timestamp }
-          : {}),
         completed: true,
-        aborted: false,
         start: active.start,
         end: record.end,
       });
@@ -148,10 +141,8 @@ export function parseClaudeSession(
   }
   if (active != null) {
     turns.push({
-      id: active.id,
       prompt: active.prompt,
       completed: false,
-      aborted: false,
       start: active.start,
       end: records.at(-1)?.end ?? active.start,
     });

@@ -15,9 +15,10 @@ import {
   cursorEquals,
   findNativeSession,
   identifyPromptSession,
-  latestHumanOffset,
+  latestHumanBoundary,
+  outcomeAfter,
+  type PromptOutcome,
   refreshNativeSession,
-  resultAfter,
   type SharedSession,
 } from "./native_session.ts";
 import type { Exec, ExecResult } from "./process.ts";
@@ -245,9 +246,14 @@ export async function promptHerdr(
     return document(
       settled.snapshot,
       "quiescent",
-      resultAfter(settled.snapshot, offset),
-      warnings,
-      retry,
+      {
+        outcome: outcomeAfter(settled.snapshot, {
+          offset,
+          prompt: request.invocation.prompt,
+        }),
+        warnings,
+        retry,
+      },
     );
   } catch (error) {
     const normalized = normalizeError(error);
@@ -287,7 +293,7 @@ export async function waitHerdr(
   const live = await findLiveAgent(snapshot, deps);
   if (live == null) return document(snapshot, "not_live");
   const deadline = deps.now() + options.timeoutMs;
-  const offset = latestHumanOffset(snapshot);
+  const boundary = latestHumanBoundary(snapshot);
   const settled = await waitForQuiescence(snapshot, live, deadline, deps);
   const callerId = await withSessionError(
     resolveCallerId(options.callerId, deps, snapshot.cwd),
@@ -306,8 +312,7 @@ export async function waitHerdr(
   return document(
     settled.snapshot,
     "quiescent",
-    resultAfter(settled.snapshot, offset),
-    warnings,
+    { outcome: outcomeAfter(settled.snapshot, boundary), warnings },
   );
 }
 
@@ -1184,18 +1189,21 @@ function parseCommandError(stderr: string): { code: string; message: string } {
 function document(
   snapshot: SharedSession,
   activity: PublicActivity,
-  result?: string,
-  warnings?: CleanupWarning[],
-  retry?: RetryRecord,
+  options: {
+    outcome?: PromptOutcome;
+    warnings?: CleanupWarning[];
+    retry?: RetryRecord;
+  } = {},
 ): DelegateDocument {
   return {
     session_id: snapshot.sessionId,
     agent: snapshot.agent,
     activity,
-    completed_turns: snapshot.completedTurns,
-    ...(result == null ? {} : { result }),
-    ...(warnings == null || warnings.length === 0 ? {} : { warnings }),
-    ...(retry == null ? {} : { retry }),
+    ...options.outcome,
+    ...(options.warnings == null || options.warnings.length === 0
+      ? {}
+      : { warnings: options.warnings }),
+    ...(options.retry == null ? {} : { retry: options.retry }),
   };
 }
 

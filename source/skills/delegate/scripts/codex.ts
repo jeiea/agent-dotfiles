@@ -1,6 +1,8 @@
-import type { NativeInvocation, PlanRequest } from "./select.ts";
-
-const promptPrefix = "delegate 스킬 등 다른 에이전트 재위임 금지.\n\n";
+import {
+  delegatePromptPrefix,
+  type NativeInvocation,
+  type PlanRequest,
+} from "./select.ts";
 
 export type NativeRecord = {
   value: unknown;
@@ -9,12 +11,9 @@ export type NativeRecord = {
 };
 
 export type ParsedTurn = {
-  id: string;
   prompt: string;
   assistant?: string;
-  completedAt?: string;
   completed: boolean;
-  aborted: boolean;
   start: number;
   end: number;
 };
@@ -54,7 +53,7 @@ export function planCodex(request: PlanRequest): NativeInvocation {
       "-",
     ],
     herdrArgs: [...globals, ...resume],
-    prompt: promptPrefix + request.prompt,
+    prompt: delegatePromptPrefix + request.prompt,
   };
 }
 
@@ -149,18 +148,11 @@ export function parseCodexSession(
     ) {
       const completed = payload.type === "task_complete";
       turns.push({
-        id: active.id,
         prompt: active.prompt,
         ...(completed && active.assistant.length > 0
           ? { assistant: active.assistant.at(-1) }
           : {}),
-        ...(completed &&
-            (typeof payload.completed_at === "string" ||
-              typeof payload.completed_at === "number")
-          ? { completedAt: String(payload.completed_at) }
-          : {}),
         completed,
-        aborted: !completed,
         start: active.start,
         end: record.end,
       });
@@ -169,10 +161,8 @@ export function parseCodexSession(
   }
   if (active?.context === true) {
     turns.push({
-      id: active.id,
       prompt: active.prompt,
       completed: false,
-      aborted: false,
       start: active.start,
       end: records.at(-1)?.end ?? active.start,
     });

@@ -22,6 +22,15 @@ export type NativeInvocation = {
   prompt: string;
 };
 
+export const delegatePromptPrefix =
+  "delegate 스킬 등 다른 에이전트 재위임 금지.\n\n";
+
+export function stripDelegatePromptPrefix(prompt: string): string {
+  return prompt.startsWith(delegatePromptPrefix)
+    ? prompt.slice(delegatePromptPrefix.length)
+    : prompt;
+}
+
 export function selectAgent(
   prompt: string,
 ): { agent: Agent; reason: string } {

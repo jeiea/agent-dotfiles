@@ -90,7 +90,6 @@ function codexTurn(
   prompt: string,
   result?: string,
   end: "complete" | "aborted" | "open" = result == null ? "open" : "complete",
-  completedAt: string | number = "2026-09-16T00:00:00Z",
 ) {
   return [
     { type: "event_msg", payload: { type: "task_started", turn_id: id } },
@@ -128,7 +127,6 @@ function codexTurn(
         payload: {
           type: "task_complete",
           turn_id: id,
-          completed_at: completedAt,
         },
       }]
       : end === "aborted"
@@ -541,7 +539,22 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
   const responses: FakeResponse[] = [
     herdr({ agents: [liveAgent("working", 1)] }),
     herdr({ agents: [liveAgent("working", 3)] }),
-    herdr({ agent: liveAgent("done", 3) }),
+    herdr({ agent: liveAgent("done", 3) }, {
+      onStart: () =>
+        appendJsonl(path, [
+          ...codexTurn(
+            "turn-1-tail",
+            "취소한 중간 요청",
+            "ignored",
+            "aborted",
+          ),
+          ...codexTurn(
+            "turn-2",
+            `${prefix}수동 후속 요청`,
+            "최신 완료 결과",
+          ),
+        ]),
+    }),
     herdr({ agent: liveAgent("done", 3) }),
     herdr({}),
     herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller-1" }] }),
@@ -568,12 +581,11 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
 
   const status = await runDelegate(["status", codexId], start.deps);
   assertEquals(status.code, 0);
-  assertStringIncludes(status.stdout, "activity: working");
+  assertEquals(
+    status.stdout,
+    `---\nsession_id: ${codexId}\nagent: codex\nactivity: working\n---\n`,
+  );
 
-  appendJsonl(path, [
-    ...codexTurn("turn-1-tail", "ignored", "ignored", "aborted"),
-    ...codexTurn("turn-2", `${prefix}수동 후속 요청`, "최신 완료 결과"),
-  ]);
   const waited = await runDelegate([
     "wait",
     codexId,
@@ -584,6 +596,10 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
   ], start.deps);
   assertEquals(waited.code, 0);
   assertStringIncludes(waited.stdout, "activity: quiescent");
+  assertStringIncludes(
+    waited.stdout,
+    "intervening_prompts:\n  - 취소한 중간 요청\n  - 수동 후속 요청",
+  );
   assertStringIncludes(waited.stdout, "\n\n최신 완료 결과\n");
   assertEquals(
     start.fake.calls.some((call) =>
@@ -678,6 +694,7 @@ Deno.test("prompt 파일의 BOM과 마지막 개행 하나를 제거한 전송 �
 
   assertEquals(result.code, 0);
   assertStringIncludes(result.stdout, `session_id: ${codexId}`);
+  assertEquals(result.stdout.includes("intervening_prompts:"), false);
   assertStringIncludes(result.stdout, "\n\n완료\n");
   assertEquals(
     test.fake.calls.find((call) => call.args[1] === "prompt")?.args[3],
@@ -2080,18 +2097,11 @@ Deno.test("Windows에서 HOME과 사용자 프로필이 달라도 사용자는 �
   assertStringIncludes(result.stdout, "agent: codex");
 });
 
-Deno.test("코덱스 native fixture는 완료 대화·부분 record와 숫자 완료 시각의 공개 문자열을 보존한다", async () => {
+Deno.test("코덱스 native fixture는 완료 대화와 부분 record를 보존한다", async () => {
   await using dir = await tempDir();
   writeJsonl(codexPath(dir.path), [
     codexMeta(),
     ...codexTurn("turn-1", "사람 요청", "최종 답변"),
-    ...codexTurn(
-      "numeric-time",
-      "숫자 시각",
-      "숫자 완료",
-      "complete",
-      1_758_038_401,
-    ),
     ...codexTurn("turn-2", "취소 요청", undefined, "aborted"),
   ], '{"type":"response_item"');
   const snapshot = await findNativeSession(
@@ -2104,13 +2114,6 @@ Deno.test("코덱스 native fixture는 완료 대화·부분 record와 숫자 �
     }).deps.env,
   );
   assertEquals(snapshot.cursor.partial, true);
-  assertEquals(snapshot.completedTurns, [{
-    turn_id: "turn-1",
-    completed_at: "2026-09-16T00:00:00Z",
-  }, {
-    turn_id: "numeric-time",
-    completed_at: "1758038401",
-  }]);
   assertStringIncludes(renderConversation(snapshot), "사람 요청");
   assertStringIncludes(renderConversation(snapshot), "최종 답변");
   assertEquals(
@@ -2177,10 +2180,6 @@ Deno.test("클로드 native fixture는 사람 prompt와 마지막 도구 없는 
     setup(dir.path, "").deps.env,
   );
   assertEquals(snapshot.agent, "claude");
-  assertEquals(
-    snapshot.completedTurns[0]?.turn_id,
-    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-  );
   const rendered = renderConversation(snapshot);
   assertStringIncludes(rendered, "클로드 요청");
   assertStringIncludes(rendered, "최종 답변");
@@ -2324,7 +2323,7 @@ Deno.test("이름이 바뀐 탭이나 blocker가 남은 탭은 주 결과를 성
   assertEquals(test.fake.calls.some((call) => call.args[1] === "close"), false);
 });
 
-Deno.test("정숙 구간 중 sequence와 native cursor가 바뀌면 500ms 판정을 재무장하고 최신 완료 결과를 반환한다", async () => {
+Deno.test("작업 중 사람이 프롬프트를 추가하면 접두사 없는 중간 프롬프트와 최신 결과를 반환한다", async () => {
   await using dir = await tempDir();
   const path = codexPath(dir.path);
   const sent = `${prefix}첫 요청`;
@@ -2385,6 +2384,11 @@ Deno.test("정숙 구간 중 sequence와 native cursor가 바뀌면 500ms 판정
     "caller",
   ], test.deps);
   assertEquals(result.code, 0);
+  assertStringIncludes(
+    result.stdout,
+    "intervening_prompts:\n  - 수동 요청",
+  );
+  assertEquals(result.stdout.includes(prefix), false);
   assertStringIncludes(result.stdout, "\n\n최신 결과\n");
   assertEquals(
     test.fake.calls.filter((call) => call.args[1] === "wait").length,
