@@ -124,5 +124,8 @@ export function exitCode(code: PublicErrorCode): number {
 }
 
 export function renderDocument(document: DelegateDocument): string {
-  return `---\n${stringify(document, { lineWidth: -1 })}---\n`;
+  const { result, ...metadata } = document;
+  const frontmatter = `---\n${stringify(metadata, { lineWidth: -1 })}---\n`;
+  if (result == null) return frontmatter;
+  return `${frontmatter}\n${result}${result.endsWith("\n") ? "" : "\n"}`;
 }

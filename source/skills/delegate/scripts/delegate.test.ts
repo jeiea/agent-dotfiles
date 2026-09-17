@@ -370,7 +370,7 @@ Deno.test("두 위임을 동시에 요청해도 각자 작업을 마치고 결�
   assertEquals(secondCallsBeforeRelease, 0);
   assertEquals(results.map((result) => result.code), [0, 0]);
   assertEquals(
-    results.every((result) => result.stdout.includes("result: 완료")),
+    results.every((result) => result.stdout.includes("\n\n완료\n")),
     true,
   );
 });
@@ -459,7 +459,7 @@ Deno.test("같은 중단 세션을 동시에 재개하면 먼저 시작한 요�
     secondResult,
   ]);
   assertEquals(firstOutput.code, 0);
-  assertStringIncludes(firstOutput.stdout, "result: 첫 결과");
+  assertStringIncludes(firstOutput.stdout, "\n\n첫 결과\n");
   assertEquals(secondOutput.code, 5);
   assertStringIncludes(secondOutput.stdout, "code: live_session_ambiguous");
   assertStringIncludes(
@@ -584,7 +584,7 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
   ], start.deps);
   assertEquals(waited.code, 0);
   assertStringIncludes(waited.stdout, "activity: quiescent");
-  assertStringIncludes(waited.stdout, "result: 최신 완료 결과");
+  assertStringIncludes(waited.stdout, "\n\n최신 완료 결과\n");
   assertEquals(
     start.fake.calls.some((call) =>
       call.args.includes("/rename caller-1 검토")
@@ -678,7 +678,7 @@ Deno.test("prompt 파일의 BOM과 마지막 개행 하나를 제거한 전송 �
 
   assertEquals(result.code, 0);
   assertStringIncludes(result.stdout, `session_id: ${codexId}`);
-  assertStringIncludes(result.stdout, "result: 완료");
+  assertStringIncludes(result.stdout, "\n\n완료\n");
   assertEquals(
     test.fake.calls.find((call) => call.args[1] === "prompt")?.args[3],
     sentPrompt,
@@ -690,7 +690,7 @@ Deno.test("사용자가 직접 prompt를 완료하면 native 파일 flush 없이
   const normal = setup(dir.path, "작업", [{
     cmd: "codex",
     stdout: `{"type":"thread.started","thread_id":"${codexId}"}\n` +
-      '{"type":"item.completed","item":{"type":"agent_message","text":"완료"}}\n',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"# 완료\\n\\n본문"}}\n',
   }]);
   const completed = await runDelegate([
     "prompt",
@@ -700,8 +700,10 @@ Deno.test("사용자가 직접 prompt를 완료하면 native 파일 flush 없이
     "codex",
   ], normal.deps);
   assertEquals(completed.code, 0);
-  assertStringIncludes(completed.stdout, "activity: quiescent");
-  assertStringIncludes(completed.stdout, "result: 완료");
+  assertEquals(
+    completed.stdout,
+    `---\nsession_id: ${codexId}\nagent: codex\nactivity: quiescent\n---\n\n# 완료\n\n본문\n`,
+  );
   assertEquals(completed.stdout.includes("run_id:"), false);
   assertEquals(normal.fake.calls[0]?.env.HERDR_ENV, undefined);
 
@@ -749,7 +751,7 @@ Deno.test("사용자가 직접 prompt를 완료하면 native 파일 flush 없이
     "direct",
   ], claude.deps);
   assertEquals(resumed.code, 0);
-  assertStringIncludes(resumed.stdout, "result: 클로드 재개");
+  assertStringIncludes(resumed.stdout, "\n\n클로드 재개\n");
   assertEquals(claude.fake.calls[0]?.cwd, claudeCwd);
 });
 
@@ -834,7 +836,7 @@ Deno.test("사용자가 종료된 Herdr session을 확인 후 write로 재개하
     "2s",
   ], test.deps);
   assertEquals(resumed.code, 0);
-  assertStringIncludes(resumed.stdout, "result: 재개 결과");
+  assertStringIncludes(resumed.stdout, "\n\n재개 결과\n");
   assertEquals(sleeps, [50, 500, 500]);
   assertEquals(
     test.fake.calls.filter((call) => call.args[1] === "wait").length,
@@ -1958,7 +1960,7 @@ Deno.test("Claude Herdr 시작은 caller 표시 이름을 적용하고 live 이�
     "화면",
   ], test.deps);
   assertEquals(started.code, 0);
-  assertStringIncludes(started.stdout, "result: 완료");
+  assertStringIncludes(started.stdout, "\n\n완료\n");
   const start = test.fake.calls.find((call) => call.args[1] === "start");
   assertEquals(start?.args.includes("--name=caller-claude 화면"), true);
 
@@ -2317,7 +2319,7 @@ Deno.test("이름이 바뀐 탭이나 blocker가 남은 탭은 주 결과를 성
     "caller",
   ], test.deps);
   assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "result: 완료");
+  assertStringIncludes(result.stdout, "\n\n완료\n");
   assertStringIncludes(result.stdout, "code: unmanaged_tab");
   assertEquals(test.fake.calls.some((call) => call.args[1] === "close"), false);
 });
@@ -2383,7 +2385,7 @@ Deno.test("정숙 구간 중 sequence와 native cursor가 바뀌면 500ms 판정
     "caller",
   ], test.deps);
   assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "result: 최신 결과");
+  assertStringIncludes(result.stdout, "\n\n최신 결과\n");
   assertEquals(
     test.fake.calls.filter((call) => call.args[1] === "wait").length,
     2,
@@ -2620,7 +2622,7 @@ Deno.test("자동 cleanup은 다른 active pane을 모두 보고하고 target pa
     "caller",
   ], test.deps);
   assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "result: 완료");
+  assertStringIncludes(result.stdout, "\n\n완료\n");
   assertStringIncludes(result.stdout, "code: tab_close_blocked");
   assertStringIncludes(result.stdout, "pane_id: pane-working");
   assertStringIncludes(result.stdout, "pane_id: pane-unknown");
@@ -2685,7 +2687,7 @@ Deno.test("완료된 작업의 마지막 관리 pane을 닫으며 탭이 함께 
     "caller",
   ], test.deps);
   assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "result: 완료");
+  assertStringIncludes(result.stdout, "\n\n완료\n");
   assertEquals(result.stdout.includes("warnings:"), false);
   assertEquals(
     test.fake.calls.slice(-2).map((call) => call.args),
@@ -2776,7 +2778,7 @@ Deno.test("완료된 작업의 자동 정리가 실패하면 cleanup_failed 경�
       "caller",
     ], test.deps);
     assertEquals(result.code, 0, scenario.name);
-    assertStringIncludes(result.stdout, "result: 완료", scenario.name);
+    assertStringIncludes(result.stdout, "\n\n완료\n", scenario.name);
     assertStringIncludes(result.stdout, "code: cleanup_failed", scenario.name);
     assertStringIncludes(result.stdout, scenario.cause, scenario.name);
     assertEquals(

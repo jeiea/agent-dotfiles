@@ -186,7 +186,7 @@ function parser() {
       {
         brief: message`새 native session 시작 또는 기존 session에 후속 prompt`,
         description:
-          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 반환. 성공하면 관리 pane과 빈 관리 탭을 자동 정리하며 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
+          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane과 빈 관리 탭을 자동 정리하며 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
         footer: message`error.code 대응
 
 agent_blocked: 사용자 입력 대기. pane에서 응답한 뒤 wait
@@ -199,7 +199,7 @@ live_session_ambiguous: 같은 session의 다른 재개 진행 중. 완료 뒤 �
 
 timeout: --timeout 초과. session은 계속 실행될 수 있으니 status 확인
 
-warnings[].code 대응 (result는 유효)
+warnings[].code 대응 (마크다운 본문은 유효)
 
 tab_close_blocked: 다른 pane 작업 중이라 탭 유지. blockers 종료 뒤 close
 
@@ -249,7 +249,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`실행 중 session 완료 대기`,
         description:
-          message`마지막 사람 prompt 이후 result 반환. 완료·정리·오류 의미는 prompt와 동일`,
+          message`마지막 사람 prompt 이후 result를 마크다운 본문으로 반환. 완료·정리·오류 의미는 prompt와 동일`,
       },
     ),
     (value) => ({ kind: "wait" as const, ...value }),
@@ -261,7 +261,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
         target: argument(string({ metavar: "SESSION_ID" }), {}),
         lines: withDefault(
           option("--lines", integer({ min: 1 }), {
-            description: message`result 마지막 N줄`,
+            description: message`마크다운 본문 마지막 N줄`,
           }),
           200,
         ),
@@ -306,7 +306,7 @@ export async function runDelegate(
       programName: "delegate",
       brief: message`Codex·Claude native session 위임`,
       description:
-        message`출력은 YAML 문서. session_id, agent, activity, completed_turns, result, error, warnings, retry 필드`,
+        message`출력은 YAML 프런트매터와 선택적 마크다운 본문. session_id, agent, activity, completed_turns, error, warnings, retry는 프런트매터, result는 본문`,
       footer:
         message`exit code: 2 usage, 3 환경·session 없음, 4 사용자 조치 필요, 5 실패, 6 timeout, 130 중단`,
       args,
