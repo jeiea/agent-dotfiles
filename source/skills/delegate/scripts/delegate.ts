@@ -155,7 +155,10 @@ function parser() {
         effort: optional(option(
           "--effort",
           choice(["low", "medium", "high", "xhigh", "max"] as const),
-          { description: message`기본 medium. 실행 중 session은 변경 불가` },
+          {
+            description:
+              message`생략 시 native agent 기본값. 실행 중 session은 변경 불가`,
+          },
         )),
         addDirs: multiple(option(
           "--add-dir",
@@ -393,7 +396,7 @@ export async function runDelegate(
       permission,
       cwd: snapshot?.cwd ?? deps.cwd,
       addDirs: parsed.addDirs.map((dir) => resolve(deps.cwd, dir)),
-      effort: parsed.effort ?? "medium",
+      effort: parsed.effort,
       prompt,
       model: parsed.model,
       callerId: parsed.callerId ?? deps.env.CODEX_THREAD_ID,

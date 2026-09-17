@@ -7,7 +7,7 @@ export type PlanRequest = {
   permission: Permission;
   cwd: string;
   addDirs: readonly string[];
-  effort: Effort;
+  effort?: Effort;
   prompt: string;
   model?: string;
   callerId?: string;

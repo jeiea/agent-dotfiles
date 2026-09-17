@@ -35,8 +35,9 @@ export function planCodex(request: PlanRequest): NativeInvocation {
     request.cwd,
     ...request.addDirs.flatMap((dir) => ["--add-dir", dir]),
     ...(request.model == null ? [] : ["-m", request.model]),
-    "-c",
-    `model_reasoning_effort=${request.effort}`,
+    ...(request.effort == null
+      ? []
+      : ["-c", `model_reasoning_effort=${request.effort}`]),
   ];
   const resume = request.resumeSessionId == null
     ? []

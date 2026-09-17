@@ -24,7 +24,7 @@ export function planClaude(request: PlanRequest): NativeInvocation {
     ];
   const shared = [
     ...(request.model == null ? [] : [`--model=${request.model}`]),
-    `--effort=${request.effort}`,
+    ...(request.effort == null ? [] : [`--effort=${request.effort}`]),
     ...permission,
     ...request.addDirs.map((dir) => `--add-dir=${dir}`),
     ...(name === "" ? [] : [`--name=${name}`]),

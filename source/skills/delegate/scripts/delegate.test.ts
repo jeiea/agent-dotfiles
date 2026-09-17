@@ -633,7 +633,7 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
   assertStringIncludes(closed.stdout, "activity: not_live");
 });
 
-Deno.test("prompt 파일의 BOM과 마지막 개행 하나를 제거한 전송 문자열로 Herdr gate를 완료한다", async () => {
+Deno.test("prompt 파일을 정규화하고 명시한 effort로 Herdr 작업을 완료한다", async () => {
   await using dir = await tempDir();
   const promptPath = join(dir.path, "prompt.md");
   const nativePath = codexPath(dir.path);
@@ -688,6 +688,8 @@ Deno.test("prompt 파일의 BOM과 마지막 개행 하나를 제거한 전송 �
     "caller-file",
     "--prompt-file",
     promptPath,
+    "--effort",
+    "high",
     "--timeout",
     "1s",
   ], test.deps);
@@ -700,9 +702,12 @@ Deno.test("prompt 파일의 BOM과 마지막 개행 하나를 제거한 전송 �
     test.fake.calls.find((call) => call.args[1] === "prompt")?.args[3],
     sentPrompt,
   );
+  const start = test.fake.calls.find((call) => call.args[1] === "start");
+  assertEquals(start?.args.includes("-c"), true);
+  assertEquals(start?.args.includes("model_reasoning_effort=high"), true);
 });
 
-Deno.test("사용자가 직접 prompt를 완료하면 native 파일 flush 없이 결과를 받고 재개는 native cwd와 같은 ID를 지킨다", async () => {
+Deno.test("사용자가 native 기본 옵션으로 직접 prompt를 완료하고 재개하면 결과와 같은 session을 보존한다", async () => {
   await using dir = await tempDir();
   const normal = setup(dir.path, "작업", [{
     cmd: "codex",
@@ -723,6 +728,13 @@ Deno.test("사용자가 직접 prompt를 완료하면 native 파일 flush 없이
   );
   assertEquals(completed.stdout.includes("run_id:"), false);
   assertEquals(normal.fake.calls[0]?.env.HERDR_ENV, undefined);
+  assertEquals(normal.fake.calls[0]?.args.includes("-c"), false);
+  assertEquals(
+    normal.fake.calls[0]?.args.some((arg) =>
+      arg.startsWith("model_reasoning_effort=")
+    ),
+    false,
+  );
 
   const sessionCwd = join(dir.path, "session-workspace");
   Deno.mkdirSync(sessionCwd);
@@ -770,6 +782,10 @@ Deno.test("사용자가 직접 prompt를 완료하면 native 파일 flush 없이
   assertEquals(resumed.code, 0);
   assertStringIncludes(resumed.stdout, "\n\n클로드 재개\n");
   assertEquals(claude.fake.calls[0]?.cwd, claudeCwd);
+  assertEquals(
+    claude.fake.calls[0]?.args.some((arg) => arg.startsWith("--effort=")),
+    false,
+  );
 });
 
 Deno.test("사용자가 종료된 Herdr session을 확인 후 write로 재개하면 같은 파일에 append하고 비종결 상태를 쉬어 재대기한 뒤 결정적 이름으로 정리한다", async () => {
@@ -1915,7 +1931,7 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
   );
 });
 
-Deno.test("Claude Herdr 시작은 caller 표시 이름을 적용하고 live 이름 변경과 wait 이름 변경을 거부한다", async () => {
+Deno.test("Claude Herdr 시작은 표시 이름과 effort를 적용하고 live·wait 이름 변경을 거부한다", async () => {
   await using dir = await tempDir();
   const path = claudePath(dir.path);
   const test = setup(dir.path, "화면 작업", [
@@ -1975,11 +1991,14 @@ Deno.test("Claude Herdr 시작은 caller 표시 이름을 적용하고 live 이�
     "caller-claude",
     "--name",
     "화면",
+    "--effort",
+    "high",
   ], test.deps);
   assertEquals(started.code, 0);
   assertStringIncludes(started.stdout, "\n\n완료\n");
   const start = test.fake.calls.find((call) => call.args[1] === "start");
   assertEquals(start?.args.includes("--name=caller-claude 화면"), true);
+  assertEquals(start?.args.includes("--effort=high"), true);
 
   const conflictSetup = setup(dir.path, "후속", [
     herdr({ agents: [claudeLive("idle", 3)] }),
