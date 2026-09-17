@@ -1,8 +1,14 @@
+import { parseArgs } from "jsr:@std/cli@^1";
+
 interface ProjectViewLocation {
   owner: string;
   projectNumber: number;
   viewNumber: number;
+  filter?: string;
+  sliceFieldId?: string;
   sliceValue?: string;
+  sortFieldId?: string;
+  sortDirection?: SortDirection;
 }
 
 interface ViewQueryInput {
@@ -12,12 +18,13 @@ interface ViewQueryInput {
 }
 
 type SortDirection = "ASC" | "DESC";
+type RunGhJson = (args: string[]) => Promise<unknown>;
 
-interface PrioritizedItem {
-  priority?: string;
+interface SortableItem {
+  sortValue?: string;
 }
 
-interface ProjectItem extends PrioritizedItem {
+interface ProjectItem extends SortableItem {
   id: string;
   title: string;
   content?: {
@@ -26,30 +33,37 @@ interface ProjectItem extends PrioritizedItem {
   };
 }
 
+interface ProjectField {
+  databaseId?: number;
+  name: string;
+  dataType?: string;
+  options?: Array<{ name: string }>;
+  issueField?: {
+    options: Array<{ name: string }>;
+  };
+}
+
 interface ViewConfigurationResponse {
   data: {
     organization: {
-      projectV2: {
-        views: {
-          nodes: Array<{
-            number: number;
-            filter: string;
-            groupByFields: {
-              nodes: Array<{ name: string }>;
-            };
-            sortByFields: {
-              nodes: Array<{
-                direction: SortDirection;
-                field?: {
-                  name: string;
+      projectV2?: {
+        fields: {
+          nodes: Array<ProjectField | null>;
+        };
+        view?: {
+          filter?: string;
+          sortByFields: {
+            nodes: Array<{
+              direction: SortDirection;
+              field?: {
+                name: string;
+                options: Array<{ name: string }>;
+                issueField?: {
                   options: Array<{ name: string }>;
-                  issueField?: {
-                    options: Array<{ name: string }>;
-                  };
                 };
-              }>;
-            };
-          }>;
+              };
+            }>;
+          };
         };
       };
     };
@@ -57,6 +71,7 @@ interface ViewConfigurationResponse {
 }
 
 interface ProjectItemListResponse {
+  totalCount: number;
   items: ProjectItem[];
 }
 
@@ -74,32 +89,48 @@ interface ItemFieldValuesResponse {
   };
 }
 
+export interface ListedProjectItem {
+  position: number;
+  sortField: string;
+  sortValue: string | null;
+  number: number | null;
+  title: string;
+  url: string | null;
+}
+
 const VIEW_CONFIGURATION_QUERY = `
-query($owner: String!, $projectNumber: Int!) {
+query($owner: String!, $projectNumber: Int!, $viewNumber: Int!) {
   organization(login: $owner) {
     projectV2(number: $projectNumber) {
-      views(first: 100) {
+      fields(first: 100) {
         nodes {
-          number
-          filter
-          groupByFields(first: 10) {
-            nodes {
-              ... on ProjectV2Field { name }
-              ... on ProjectV2SingleSelectField { name }
-              ... on ProjectV2IterationField { name }
+          ... on ProjectV2FieldCommon {
+            databaseId
+            dataType
+            name
+          }
+          ... on ProjectV2SingleSelectField {
+            options { name }
+            issueField {
+              ... on IssueFieldSingleSelect {
+                options { name }
+              }
             }
           }
-          sortByFields(first: 10) {
-            nodes {
-              direction
-              field {
-                ... on ProjectV2SingleSelectField {
-                  name
-                  options { name }
-                  issueField {
-                    ... on IssueFieldSingleSelect {
-                      options { name }
-                    }
+        }
+      }
+      view(number: $viewNumber) {
+        filter
+        sortByFields(first: 10) {
+          nodes {
+            direction
+            field {
+              ... on ProjectV2SingleSelectField {
+                name
+                options { name }
+                issueField {
+                  ... on IssueFieldSingleSelect {
+                    options { name }
                   }
                 }
               }
@@ -141,11 +172,44 @@ export function parseProjectViewUrl(value: string): ProjectViewLocation {
     throw new Error("깃헙 조직 프로젝트 뷰 URL이 필요합니다.");
   }
 
+  const sliceFieldId = url.searchParams.get("sliceBy[columnId]") ?? undefined;
+  const sliceValue = url.searchParams.get("sliceBy[value]") ?? undefined;
+  if (sliceValue && !sliceFieldId) {
+    throw new Error(
+      "슬라이스 값이 있는 URL에는 sliceBy[columnId]도 필요합니다.",
+    );
+  }
+
+  const sortFieldIds = url.searchParams.getAll("sortedBy[columnId]");
+  const sortDirections = url.searchParams.getAll("sortedBy[direction]");
+  if (sortFieldIds.length > 1 || sortDirections.length > 1) {
+    throw new Error("URL의 다중 정렬은 지원하지 않습니다.");
+  }
+  if (sortFieldIds.length !== sortDirections.length) {
+    throw new Error("URL 임시 정렬에는 필드와 방향이 모두 필요합니다.");
+  }
+  const sortDirection = sortDirections[0]?.toUpperCase();
+  if (sortDirection && sortDirection !== "ASC" && sortDirection !== "DESC") {
+    throw new Error(`지원하지 않는 정렬 방향입니다: ${sortDirections[0]}`);
+  }
+
+  const filterParameter = url.searchParams.has("filterQuery")
+    ? "filterQuery"
+    : url.searchParams.has("query")
+    ? "query"
+    : undefined;
+
   return {
     owner: decodeURIComponent(match[1]!),
     projectNumber: Number(match[2]),
     viewNumber: Number(match[3]),
-    sliceValue: url.searchParams.get("sliceBy[value]") ?? undefined,
+    filter: filterParameter
+      ? url.searchParams.get(filterParameter) ?? ""
+      : undefined,
+    sliceFieldId,
+    sliceValue,
+    sortFieldId: sortFieldIds[0],
+    sortDirection: sortDirection as SortDirection | undefined,
   };
 }
 
@@ -158,36 +222,40 @@ export function buildViewQuery(input: ViewQueryInput): string {
   return [input.filter.trim(), slice].filter(Boolean).join(" ");
 }
 
-export function sortViewItems<T extends PrioritizedItem>(
+export function sortViewItems<T extends SortableItem>(
   items: readonly T[],
-  priorities: readonly string[],
-  direction: SortDirection,
+  options: {
+    options: readonly string[];
+    direction: SortDirection;
+  },
 ): T[] {
-  const priorityOrder = new Map(
-    priorities.map((priority, index) => [priority, index]),
+  const optionOrder = new Map(
+    options.options.map((option, index) => [option, index]),
   );
-  const missingOrder = priorities.length;
 
   return items
     .map((item, index) => ({ item, index }))
     .sort((left, right) => {
-      const leftOrder = left.item.priority === undefined
-        ? missingOrder
-        : priorityOrder.get(left.item.priority) ?? missingOrder;
-      const rightOrder = right.item.priority === undefined
-        ? missingOrder
-        : priorityOrder.get(right.item.priority) ?? missingOrder;
-      const ranked = direction === "ASC"
-        ? leftOrder - rightOrder
-        : rightOrder === missingOrder || leftOrder === missingOrder
-        ? leftOrder - rightOrder
-        : rightOrder - leftOrder;
-      return ranked || left.index - right.index;
+      const leftOrder = left.item.sortValue === undefined
+        ? undefined
+        : optionOrder.get(left.item.sortValue);
+      const rightOrder = right.item.sortValue === undefined
+        ? undefined
+        : optionOrder.get(right.item.sortValue);
+      if (leftOrder === undefined && rightOrder === undefined) {
+        return left.index - right.index;
+      }
+      if (leftOrder === undefined) return 1;
+      if (rightOrder === undefined) return -1;
+
+      const ranked = leftOrder - rightOrder;
+      return (options.direction === "ASC" ? ranked : -ranked) ||
+        left.index - right.index;
     })
     .map(({ item }) => item);
 }
 
-async function runGhJson<T>(args: string[]): Promise<T> {
+async function runGhJson(args: string[]): Promise<unknown> {
   const command = new Deno.Command("gh", {
     args,
     stdout: "piped",
@@ -197,50 +265,118 @@ async function runGhJson<T>(args: string[]): Promise<T> {
   if (!result.success) {
     throw new Error(new TextDecoder().decode(result.stderr).trim());
   }
-  return JSON.parse(new TextDecoder().decode(result.stdout)) as T;
+  return JSON.parse(new TextDecoder().decode(result.stdout));
 }
 
-async function getViewConfiguration(location: ProjectViewLocation) {
-  const response = await runGhJson<ViewConfigurationResponse>([
+async function callGh<T>(run: RunGhJson, args: string[]): Promise<T> {
+  return await run(args) as T;
+}
+
+function getFilterQualifier(field: ProjectField): string {
+  const builtInQualifiers: Record<string, string> = {
+    ASSIGNEES: "assignee",
+    CLOSED: "closed",
+    CREATED: "created",
+    ISSUE_TYPE: "type",
+    LABELS: "label",
+    MILESTONE: "milestone",
+    PARENT_ISSUE: "parent-issue",
+    REPOSITORY: "repo",
+    REVIEWERS: "reviewers",
+    TITLE: "title",
+    UPDATED: "updated",
+  };
+  const builtIn = field.dataType && builtInQualifiers[field.dataType];
+  if (builtIn) return builtIn;
+
+  const customTypes = new Set([
+    "DATE",
+    "ITERATION",
+    "MULTI_SELECT",
+    "NUMBER",
+    "SINGLE_SELECT",
+    "TEXT",
+  ]);
+  if (!field.dataType || !customTypes.has(field.dataType)) {
+    throw new Error(`${field.name} 필드는 슬라이스 필터로 지원하지 않습니다.`);
+  }
+  return field.name.toLowerCase().replaceAll(" ", "-");
+}
+
+async function getViewConfiguration(
+  location: ProjectViewLocation,
+  run: RunGhJson,
+) {
+  const response = await callGh<ViewConfigurationResponse>(run, [
     "api",
     "graphql",
     "-f",
     `query=${VIEW_CONFIGURATION_QUERY}`,
-    "-F",
+    "-f",
     `owner=${location.owner}`,
     "-F",
     `projectNumber=${location.projectNumber}`,
+    "-F",
+    `viewNumber=${location.viewNumber}`,
   ]);
-  const view = response.data.organization.projectV2.views.nodes.find(
-    ({ number }) => number === location.viewNumber,
-  );
-  if (!view) throw new Error(`뷰 ${location.viewNumber}을 찾지 못했습니다.`);
-
-  const [sort, ...extraSorts] = view.sortByFields.nodes;
-  if (!sort || extraSorts.length > 0 || sort.field?.name !== "Priority") {
-    throw new Error("Priority 한 필드로 정렬된 뷰만 지원합니다.");
+  const project = response.data.organization.projectV2;
+  if (!project) {
+    throw new Error(`프로젝트 ${location.projectNumber}을 찾지 못했습니다.`);
   }
-  const priorityOptions = sort.field.issueField?.options ?? sort.field.options;
-  if (priorityOptions.length === 0) {
-    throw new Error("Priority 옵션 순서를 읽지 못했습니다.");
+  if (!project.view) {
+    throw new Error(`뷰 ${location.viewNumber}을 찾지 못했습니다.`);
   }
 
-  const groupFields = view.groupByFields.nodes;
-  if (location.sliceValue && groupFields.length !== 1) {
-    throw new Error("슬라이스 필드를 하나로 확정할 수 없습니다.");
+  const [savedSort, ...extraSorts] = project.view.sortByFields.nodes;
+  const overriddenSortField = location.sortFieldId
+    ? project.fields.nodes.find((field) =>
+      field &&
+      (field.name === location.sortFieldId ||
+        String(field.databaseId) === location.sortFieldId)
+    )
+    : undefined;
+  if (location.sortFieldId && !overriddenSortField) {
+    throw new Error(`정렬 필드 ${location.sortFieldId}을 찾지 못했습니다.`);
+  }
+  const sortField = overriddenSortField ?? savedSort?.field;
+  const sortDirection = location.sortDirection ?? savedSort?.direction;
+  if (
+    !sortField?.name || !sortDirection ||
+    (!overriddenSortField && extraSorts.length > 0)
+  ) {
+    throw new Error("단일선택 한 필드로 정렬된 뷰만 지원합니다.");
+  }
+  const sortOptions = sortField.issueField?.options ?? sortField.options ?? [];
+  if (sortOptions.length === 0) {
+    throw new Error(`${sortField.name} 옵션 순서를 읽지 못했습니다.`);
+  }
+
+  const sliceField = location.sliceFieldId
+    ? project.fields.nodes.find((field) =>
+      field &&
+      (field.name === location.sliceFieldId ||
+        String(field.databaseId) === location.sliceFieldId)
+    )
+    : undefined;
+  if (location.sliceFieldId && !sliceField) {
+    throw new Error(
+      `슬라이스 필드 ${location.sliceFieldId}을 찾지 못했습니다.`,
+    );
   }
 
   return {
-    filter: view.filter,
-    sliceField: location.sliceValue ? groupFields[0]?.name : undefined,
-    sortDirection: sort.direction,
-    priorityOptions: priorityOptions.map(({ name }) => name),
+    filter: location.filter ?? project.view.filter ?? "",
+    sliceField: sliceField ? getFilterQualifier(sliceField) : undefined,
+    sortDirection,
+    sortField: sortField.name,
+    sortOptions: sortOptions.map(({ name }) => name),
   };
 }
 
 async function listFilteredItems(
   location: ProjectViewLocation,
   query: string,
+  run: RunGhJson,
 ): Promise<ProjectItem[]> {
   const args = [
     "project",
@@ -254,12 +390,21 @@ async function listFilteredItems(
     "1000",
   ];
   if (query) args.push("--query", query);
-  return (await runGhJson<ProjectItemListResponse>(args)).items;
+
+  const response = await callGh<ProjectItemListResponse>(run, args);
+  if (response.totalCount > response.items.length) {
+    throw new Error(
+      `프로젝트 항목 ${response.totalCount}개 중 ${response.items.length}개만 ` +
+        "조회되어 순서를 확정할 수 없습니다.",
+    );
+  }
+  return response.items;
 }
 
-async function readPriorities(
+async function readSortValues(
   ids: readonly string[],
   fieldName: string,
+  run: RunGhJson,
 ): Promise<Map<string, string | undefined>> {
   const batches = Array.from(
     { length: Math.ceil(ids.length / 50) },
@@ -267,14 +412,14 @@ async function readPriorities(
   );
   const responses = await Promise.all(
     batches.map((batch) =>
-      runGhJson<ItemFieldValuesResponse>([
+      callGh<ItemFieldValuesResponse>(run, [
         "api",
         "graphql",
         "-f",
         `query=${ITEM_FIELD_VALUES_QUERY}`,
-        "-F",
+        "-f",
         `fieldName=${fieldName}`,
-        ...batch.flatMap((id) => ["-F", `ids[]=${id}`]),
+        ...batch.flatMap((id) => ["-f", `ids[]=${id}`]),
       ])
     ),
   );
@@ -295,49 +440,66 @@ async function readPriorities(
   );
 }
 
-function parseLimit(args: readonly string[]): number | undefined {
-  const index = args.indexOf("--limit");
-  if (index === -1) return undefined;
-  const limit = Number(args[index + 1]);
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw new Error("--limit에는 1 이상의 정수가 필요합니다.");
-  }
-  return limit;
-}
-
-async function main(args: readonly string[]): Promise<void> {
-  const url = args.find((arg) => !arg.startsWith("--") && /^https:/.test(arg));
-  if (!url) {
-    throw new Error(
-      "사용법: list_project_view_items.ts <view-url> [--limit N]",
-    );
-  }
-  const location = parseProjectViewUrl(url);
-  const limit = parseLimit(args);
-  const configuration = await getViewConfiguration(location);
+export async function listProjectViewItems(
+  viewUrl: string,
+  options: {
+    limit?: number;
+    runGhJson?: RunGhJson;
+  } = {},
+): Promise<ListedProjectItem[]> {
+  const location = parseProjectViewUrl(viewUrl);
+  const run = options.runGhJson ?? runGhJson;
+  const configuration = await getViewConfiguration(location, run);
   const query = buildViewQuery({
     filter: configuration.filter,
     sliceField: configuration.sliceField,
     sliceValue: location.sliceValue,
   });
-  const items = await listFilteredItems(location, query);
-  const priorities = await readPriorities(
+  const items = await listFilteredItems(location, query, run);
+  const sortValues = await readSortValues(
     items.map(({ id }) => id),
-    "Priority",
+    configuration.sortField,
+    run,
   );
   const ordered = sortViewItems(
-    items.map((item) => ({ ...item, priority: priorities.get(item.id) })),
-    configuration.priorityOptions,
-    configuration.sortDirection,
-  ).slice(0, limit);
+    items.map((item) => ({
+      ...item,
+      sortValue: sortValues.get(item.id),
+    })),
+    {
+      options: configuration.sortOptions,
+      direction: configuration.sortDirection,
+    },
+  );
+  const limited = options.limit === undefined
+    ? ordered
+    : ordered.slice(0, options.limit);
 
-  const output = ordered.map((item, index) => ({
+  return limited.map((item, index) => ({
     position: index + 1,
-    priority: item.priority ?? null,
+    sortField: configuration.sortField,
+    sortValue: item.sortValue ?? null,
     number: item.content?.number ?? null,
     title: item.title,
     url: item.content?.url ?? null,
   }));
+}
+
+async function main(args: readonly string[]): Promise<void> {
+  const parsed = parseArgs(args, { string: ["limit"] });
+  const [viewUrl, ...extraPositionals] = parsed._;
+  if (typeof viewUrl !== "string" || extraPositionals.length > 0) {
+    throw new Error(
+      "사용법: list_project_view_items.ts <view-url> [--limit N]",
+    );
+  }
+
+  const limit = parsed.limit === undefined ? undefined : Number(parsed.limit);
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+    throw new Error("--limit에는 1 이상의 정수가 필요합니다.");
+  }
+
+  const output = await listProjectViewItems(viewUrl, { limit });
   console.log(JSON.stringify(output, null, 2));
 }
 
