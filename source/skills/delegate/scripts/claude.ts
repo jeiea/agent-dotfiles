@@ -6,23 +6,23 @@ import {
 } from "./select.ts";
 
 export function planClaude(request: PlanRequest): NativeInvocation {
-  const name = [request.callerId, request.name].filter((part) => part != null)
+  const name = [request.callerId, request.name]
+    .filter((part) => part != null)
     .join(" ");
   const permission = request.permission === "read-only"
     ? [
-      "--restricted",
       "--permission-mode=dontAsk",
       "--permission-prompts=none",
-      "--tools=Read,Glob,Grep,WebSearch,WebFetch",
+      "--tools=Bash,Read,Glob,Grep,WebSearch,WebFetch",
       "--allowedTools=WebSearch,WebFetch(domain:*)",
       "--strict-mcp-config",
     ]
     : [
       "--permission-mode=auto",
       "--allowedTools=WebSearch,WebFetch(domain:*)",
-      "--disallowedTools=Skill(delegate)",
     ];
   const shared = [
+    "--disallowedTools=Skill(delegate)",
     ...(request.model == null ? [] : [`--model=${request.model}`]),
     ...(request.effort == null ? [] : [`--effort=${request.effort}`]),
     ...permission,
@@ -74,11 +74,16 @@ export function parseClaudeSession(
 ): ParsedSession {
   let sessionId: string | undefined;
   let cwd: string | undefined;
-  let active: {
-    prompt: string;
-    start: number;
-    groups: Map<string, { texts: string[]; toolUse: boolean; order: number }>;
-  } | undefined;
+  let active:
+    | {
+      prompt: string;
+      start: number;
+      groups: Map<
+        string,
+        { texts: string[]; toolUse: boolean; order: number }
+      >;
+    }
+    | undefined;
   let groupOrder = 0;
   const turns: ParsedSession["turns"] = [];
 
@@ -87,7 +92,8 @@ export function parseClaudeSession(
     const recordSessionId = stringValue(event.sessionId) ??
       stringValue(event.session_id);
     if (
-      recordSessionId != null && sessionId != null &&
+      recordSessionId != null &&
+      sessionId != null &&
       recordSessionId !== sessionId
     ) {
       throw new Error("claude session ID changed inside JSONL");
@@ -103,11 +109,13 @@ export function parseClaudeSession(
       continue;
     }
     if (
-      event.type === "assistant" && active != null &&
+      event.type === "assistant" &&
+      active != null &&
       event.isSidechain !== true
     ) {
       const requestId = stringValue(event.requestId) ??
-        stringValue(asObject(event.message).id) ?? `request-${groupOrder}`;
+        stringValue(asObject(event.message).id) ??
+        `request-${groupOrder}`;
       let group = active.groups.get(requestId);
       if (group == null) {
         group = { texts: [], toolUse: false, order: groupOrder++ };
@@ -123,12 +131,14 @@ export function parseClaudeSession(
       continue;
     }
     if (
-      event.type === "system" && event.subtype === "turn_duration" &&
+      event.type === "system" &&
+      event.subtype === "turn_duration" &&
       active != null
     ) {
       const final = [...active.groups.values()]
         .filter((group) => !group.toolUse && group.texts.length > 0)
-        .sort((left, right) => left.order - right.order).at(-1);
+        .sort((left, right) => left.order - right.order)
+        .at(-1);
       turns.push({
         prompt: active.prompt,
         ...(final == null ? {} : { assistant: final.texts.join("\n") }),
@@ -156,15 +166,18 @@ function isHumanPrompt(event: Record<string, unknown>): boolean {
   if (origin.kind != null || event.promptSource != null) {
     return origin.kind === "human" && event.promptSource === "typed";
   }
-  return event.isMeta !== true && event.toolUseResult == null &&
+  return (
+    event.isMeta !== true &&
+    event.toolUseResult == null &&
     event.isSidechain !== true &&
     (event.userType == null || event.userType === "external") &&
-    typeof asObject(event.message).content === "string";
+    typeof asObject(event.message).content === "string"
+  );
 }
 
 function asObject(value: unknown): Record<string, unknown> {
   return value != null && typeof value === "object"
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 
@@ -178,10 +191,12 @@ function stringValue(value: unknown): string | undefined {
 
 function messageText(value: unknown): string {
   if (typeof value === "string") return value;
-  return arrayValue(value).flatMap((item) => {
-    const block = asObject(item);
-    return block.type === "text" && typeof block.text === "string"
-      ? [block.text]
-      : [];
-  }).join("\n");
+  return arrayValue(value)
+    .flatMap((item) => {
+      const block = asObject(item);
+      return block.type === "text" && typeof block.text === "string"
+        ? [block.text]
+        : [];
+    })
+    .join("\n");
 }

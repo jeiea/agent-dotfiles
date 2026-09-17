@@ -26,7 +26,7 @@ export type ParsedSession = {
 
 export function planCodex(request: PlanRequest): NativeInvocation {
   const permission = request.permission === "read-only"
-    ? ["-s", "read-only", "-a", "never"]
+    ? ["-s", "read-only"]
     : ["--approve-for-me"];
   const globals = [
     "--search",
@@ -76,7 +76,9 @@ export function parseCodexEvents(text: string): ParsedAgentOutput {
       if (
         event.type === "item.completed" &&
         event.item?.type === "agent_message"
-      ) result = event.item.text;
+      ) {
+        result = event.item.text;
+      }
       if (event.type === "error") error = event.message ?? event.error?.message;
     } catch {
       error = "invalid_jsonl";
@@ -90,15 +92,17 @@ export function parseCodexSession(
 ): ParsedSession {
   let sessionId: string | undefined;
   let cwd: string | undefined;
-  let active: {
-    id: string;
-    context: boolean;
-    metadataPrompt?: string;
-    fallbackPrompt: string;
-    sawPromptMetadata: boolean;
-    assistant: string[];
-    start: number;
-  } | undefined;
+  let active:
+    | {
+      id: string;
+      context: boolean;
+      metadataPrompt?: string;
+      fallbackPrompt: string;
+      sawPromptMetadata: boolean;
+      assistant: string[];
+      start: number;
+    }
+    | undefined;
   const turns: ParsedTurn[] = [];
 
   for (const record of records) {
@@ -135,7 +139,8 @@ export function parseCodexSession(
       continue;
     }
     if (
-      event.type === "response_item" && active?.context === true &&
+      event.type === "response_item" &&
+      active?.context === true &&
       payload.type === "message"
     ) {
       const text = messageText(payload.content);
@@ -155,14 +160,15 @@ export function parseCodexSession(
       continue;
     }
     if (
-      event.type === "event_msg" && active != null &&
+      event.type === "event_msg" &&
+      active != null &&
       (payload.type === "task_complete" || payload.type === "turn_aborted") &&
       payload.turn_id === active.id
     ) {
       const completed = payload.type === "task_complete";
       turns.push({
         prompt: active.sawPromptMetadata
-          ? active.metadataPrompt ?? ""
+          ? (active.metadataPrompt ?? "")
           : active.fallbackPrompt,
         ...(completed && active.assistant.length > 0
           ? { assistant: active.assistant.at(-1) }
@@ -177,7 +183,7 @@ export function parseCodexSession(
   if (active?.context === true) {
     turns.push({
       prompt: active.sawPromptMetadata
-        ? active.metadataPrompt ?? ""
+        ? (active.metadataPrompt ?? "")
         : active.fallbackPrompt,
       completed: false,
       start: active.start,
@@ -189,7 +195,7 @@ export function parseCodexSession(
 
 function asObject(value: unknown): Record<string, unknown> {
   return value != null && typeof value === "object"
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 
@@ -200,11 +206,14 @@ function stringValue(value: unknown): string | undefined {
 function messageText(value: unknown): string {
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) return "";
-  return value.flatMap((item) => {
-    const block = asObject(item);
-    return ["input_text", "output_text", "text"].includes(String(block.type)) &&
-        typeof block.text === "string"
-      ? [block.text]
-      : [];
-  }).join("\n");
+  return value
+    .flatMap((item) => {
+      const block = asObject(item);
+      return ["input_text", "output_text", "text"].includes(
+          String(block.type),
+        ) && typeof block.text === "string"
+        ? [block.text]
+        : [];
+    })
+    .join("\n");
 }
