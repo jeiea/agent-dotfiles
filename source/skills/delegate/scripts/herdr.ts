@@ -78,6 +78,7 @@ type PaneOwnership =
 type CleanupWarning = NonNullable<DelegateDocument["warnings"]>[number];
 
 class RetainPaneError extends DelegateError {}
+class LiveAgentListError extends DelegateError {}
 
 const paneLockWaitMs = 60_000;
 const activityGateMs = 30_000;
@@ -914,22 +915,40 @@ async function waitForQuiescence(
   let snapshot = initial;
   while (true) {
     ensureTime(deadline, deps, snapshot.sessionId);
-    const waited = await withSessionError(
-      json(snapshot.cwd, deps, [
-        "agent",
-        "wait",
-        live.name,
-        "--until",
-        "idle",
-        "--until",
-        "done",
-        "--until",
-        "blocked",
-        "--timeout",
-        String(Math.max(1, Math.floor(remaining(deadline, deps)))),
-      ]),
-      snapshot.sessionId,
-    );
+    let waited: HerdrResult;
+    try {
+      waited = await withSessionError(
+        json(snapshot.cwd, deps, [
+          "agent",
+          "wait",
+          live.name,
+          "--until",
+          "idle",
+          "--until",
+          "done",
+          "--until",
+          "blocked",
+          "--timeout",
+          String(Math.max(1, Math.floor(remaining(deadline, deps)))),
+        ]),
+        snapshot.sessionId,
+      );
+    } catch (error) {
+      if (
+        error instanceof DelegateError &&
+        (error.code === "cancelled" || error.code === "timeout")
+      ) throw error;
+      let recovered: LiveAgent | undefined;
+      try {
+        recovered = await findLiveAgent(snapshot, deps);
+      } catch (recoveryError) {
+        if (recoveryError instanceof LiveAgentListError) throw error;
+        throw recoveryError;
+      }
+      if (recovered == null) throw error;
+      live = recovered;
+      continue;
+    }
     const candidate = agentFromResult(waited, live.name);
     readReportedSessionId(candidate, snapshot.sessionId);
     if (candidate.status === "blocked") {
@@ -1000,7 +1019,7 @@ async function findLiveAgent(
         snapshot.sessionId,
       );
     }
-    throw new DelegateError(
+    throw new LiveAgentListError(
       "live_session_ambiguous",
       error instanceof Error ? error.message : String(error),
     );

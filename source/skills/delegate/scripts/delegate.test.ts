@@ -902,7 +902,7 @@ Deno.test("사용자가 native 기본 옵션으로 직접 prompt를 완료하고
   );
 });
 
-Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 write로 재개하면 같은 파일에 append하고 비종결 상태를 쉬어 재대기한 뒤 결정적 이름으로 정리한다", async () => {
+Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 write로 재개하고 탭 정돈으로 pane이 옮겨져도 같은 파일에 append하고 비종결 상태를 쉬어 재대기한 뒤 결정적 이름으로 정리한다", async () => {
   await using dir = await tempDir();
   const sessionCwd = join(dir.path, "stopped-session-workspace");
   Deno.mkdirSync(sessionCwd);
@@ -939,6 +939,13 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
         ),
     }),
     herdr({ agent: unidentifiedAgent("working", 1) }),
+    herdrError(
+      "agent_not_running",
+      "agent is no longer running in the target pane",
+    ),
+    herdr({
+      agents: [liveAgent("working", 2, codexId, sessionCwd)],
+    }),
     herdr({ agent_status: "working", state_change_seq: 2 }),
     herdr({ agent: { agent_status: "done", state_change_seq: 3 } }),
     herdr({ agent_status: "done", state_change_seq: 3 }),
@@ -971,7 +978,7 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
   assertEquals(sleeps, [50, 500, 500]);
   assertEquals(
     test.fake.calls.filter((call) => call.args[1] === "wait").length,
-    2,
+    3,
   );
   const start = test.fake.calls.find((call) => call.args[1] === "start");
   assertEquals(start?.cwd, sessionCwd);
@@ -1558,7 +1565,11 @@ Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회
           },
         }),
         ...(failure === "wait"
-          ? [herdr({}), herdrFailure("wait refused")]
+          ? [
+            herdr({}),
+            herdrFailure("wait refused"),
+            herdrFailure("list refused"),
+          ]
           : failure === "blocked"
           ? [herdr({}), herdr({ agent: liveAgent("blocked", 2) })]
           : failure === "raw"
@@ -1617,6 +1628,10 @@ Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회
           failure === "raw" ? "agent_failed" : "invalid_native_session"
         }`,
       );
+    }
+    if (failure === "wait") {
+      assertStringIncludes(result.stdout, "code: herdr_failed");
+      assertStringIncludes(result.stdout, "message: wait refused");
     }
     if (failure === "raw") {
       assertEquals(
