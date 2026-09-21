@@ -2,46 +2,38 @@
 
 # 유저 선호 사항
 
-- 한국어 사고 과정과 응답
-  - 파일 내용, 도구 입력은 위 지시와 무관
-- 한국어 사용 시
-  - 영어 혼용 최소화
-    - docker -> 도커, sentry -> 센트리, github actions -> 깃헙 액션 등
-    - 문자 표시 폭이 더 짧고 마땅한 표현이 없으면 혼용: API
-  - (섹션) 제목, 표 셀, 독립적인 한두 문장은 \~의, \~를, \~니다 같은 조사, 어미
-    생략
-    - 대화 응답, 문서 본문은 해당 없음
-    - 산출물별 지시 우선
-- 스크래치 파일: scratch-[name].local.md
+- 한국어 사고 과정·응답
+  - 파일 내용·도구 입력 제외
+- 한국어 사용 시 영어 혼용 최소화
+  - 도커·센트리·깃헙 액션처럼 한글 표기
+  - 마땅한 표현이 없고 표시 폭이 짧으면 원어 허용: API
+- 한국어 제목·표 셀·독립적인 한두 문장의 조사·어미 생략
+  - 대화 응답·문서 본문 제외, 산출물별 지시 우선
+- 저장소 컨벤션과 별개인 개인 취향
+- 스크래치 파일: `scratch-[name].local.md`
+- 도구 호출 JSON의 비ASCII 문자 그대로 작성
 - soa memory는 지시 없이 수정 금지
-- 취향이므로 저장소 컨벤션과 별개
-- 툴 호출 JSON의 한글같은 비ASCII는 \uXXXX 이스케이프없이 그대로 작성
-- codex: 터미널 세션 폴링 시 기본적으로 `yield_time_ms: 300000` 사용
+- 코덱스 터미널 세션 폴링 기본값: `yield_time_ms: 300000`
 
 ## 상황별 반드시 확인할 스킬
 
-- 코드 작성 시: code-flavor
-- 테스트 작성 시: tdd-flavor
-- 커밋 시: commit-flavor
-- 작업 위임 시: 내장 기능 대신 delegate
-- 메모리 필요 시: 시스템 메모리는 휘발 가능해 zettelkasten 사용
-
-가령 테스트 코드 작성 시 code-flavor, tdd-flavor 확인
+- 코드 작성: code-flavor
+- 테스트 작성: code-flavor, tdd-flavor
+- 커밋: commit-flavor
+- 작업 위임: 내장 기능 대신 delegate
+- 메모리: zettelkasten
+  - 시스템 메모리 휘발 가능
 
 ## 이전 대화 요약에서 시작 시
 
-- 요약에서 알게된 유저 선호, 다른 저장소에서 비슷한 재작업 시 유용할 정보는
-  amsd에 zettelkasten을 따라 저장
-- 요약이 영어여도 이전 대화는 한국어일 가능성 상당
+- 요약에서 얻은 유저 선호·다른 저장소의 유사 작업에 재사용할 정보는
+  zettelkasten을 따라 AMSD에 저장
 
-## bash에서 환경 변수, PATH에 없는 도구 필요 시
+## 도구 실행
 
-- 환경 변수와 정확한 런타임 사용을 위해 `mise x -- <command>` 형식으로 실행
-- PowerShell에서 `mise` 함수 래퍼가 `--`를 소비하면
-  `mise x --% <tool@version> -- <command>` 형식 사용
-
-## 추가 사용가능 툴
-
-bat, fd, rg(ripgrep), gh, sd, deno, mise
+- bash에서 환경 변수·PATH 밖 도구 필요 시 `mise x -- <command>` 사용
+- PowerShell의 `mise` 래퍼가 `--`를 소비하면
+  `mise x --% <tool@version> -- <command>` 사용
+- 추가 도구: bat, fd, rg, gh, sd, deno, mise
 
 </user-preferences>
