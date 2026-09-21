@@ -34,6 +34,8 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 
 - 일반 위임은 아래 스크립트만 사용
   - `herdr agent start/prompt/read` 직접 조립은 delegate 디버깅 같은 예외에만
+- 현재 codex일 경우 제한 시간 오류를 대비해 exec_command의 전체 출력·종료 상태
+  확인
 - 옵션 의미, 출력 필드, 오류·경고 코드 대응은 각 하위 명령 `--help`
 - 식별자는 코덱스·클로드 네이티브 세션 ID
 - `prompt`·`wait` 성공 시 pane 자동 정리, 대화는 남아 같은 ID로 재개
