@@ -1265,7 +1265,7 @@ async function cleanupAutomatically(
       message: "live pane 위치를 확인하지 못했습니다",
     }];
   }
-  const { workspaceId, tabId, paneId } = live;
+  const { paneId } = live;
   try {
     return await withPaneLock(
       { deadline, deps, sessionId: live.sessionId },
@@ -1277,27 +1277,7 @@ async function cleanupAutomatically(
             message: "탭 이름이 caller ID와 달라 자동 정리하지 않았습니다",
           }];
         }
-        const panes = await listPanes(workspaceId, cwd, deps);
-        const blockers = blockersInTab(panes, tabId, paneId);
-        if (blockers.length > 0) {
-          return [{
-            code: "tab_close_blocked",
-            message: "다른 active pane이 있어 자동 정리하지 않았습니다",
-            blockers,
-          }];
-        }
         await closePane(paneId, cwd, deps);
-        if (panes.filter((pane) => pane.tabId === tabId).length === 1) {
-          try {
-            await closeTab(tabId, cwd, deps);
-          } catch (error) {
-            if (
-              !(error instanceof DelegateError &&
-                error.code === "cleanup_failed" &&
-                error.message === `tab ${tabId} not found`)
-            ) throw error;
-          }
-        }
         return undefined;
       },
     );

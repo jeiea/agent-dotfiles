@@ -60,7 +60,7 @@ export type DelegateDocument = {
     blockers?: Blocker[];
   };
   warnings?: Array<{
-    code: "unmanaged_tab" | "tab_close_blocked" | "cleanup_failed";
+    code: "unmanaged_tab" | "cleanup_failed";
     message: string;
     blockers?: Blocker[];
   }>;

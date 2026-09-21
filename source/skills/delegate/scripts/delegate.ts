@@ -189,7 +189,7 @@ function parser() {
       {
         brief: message`새 native session 시작 또는 기존 session에 후속 prompt`,
         description:
-          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane과 빈 관리 탭을 자동 정리하며 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
+          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
         footer: message`error.code 대응
 
 agent_blocked: 사용자 입력 대기. pane에서 응답한 뒤 wait
@@ -205,8 +205,6 @@ session_id_unavailable: Herdr가 native session ID를 보고하지 않음. 전�
 timeout: --timeout 초과. 확인된 session ID가 있으면 status 확인. 전달 확인 gate timeout 뒤라면 caller ID 라벨의 pane을 직접 확인·정리
 
 warnings[].code 대응 (마크다운 본문은 유효)
-
-tab_close_blocked: 다른 pane 작업 중이라 탭 유지. blockers 종료 뒤 close
 
 unmanaged_tab: 탭 이름이 caller ID와 달라 정리 생략. 이름 복원 뒤 close
 
@@ -254,7 +252,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`실행 중 session 완료 대기`,
         description:
-          message`대기 시작 뒤 추가된 사람 prompt는 intervening_prompts, 마지막 result는 마크다운 본문으로 반환. 완료·정리·오류 의미는 prompt와 동일`,
+          message`대기 시작 뒤 추가된 사람 prompt는 intervening_prompts, 마지막 result는 마크다운 본문으로 반환. 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 오류 의미는 prompt와 동일`,
       },
     ),
     (value) => ({ kind: "wait" as const, ...value }),
