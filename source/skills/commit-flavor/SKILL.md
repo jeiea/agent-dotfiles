@@ -41,3 +41,19 @@ allowed-tools: Bash(git log *) Bash(git show *) Bash(git status *) Bash(git diff
   - `검증` / `Verification`: 요구사항 확인에 가까운 순 최대 3개
     - 제3자가 재현할 방법·명령어·결과
     - 린트·타입 검사·포맷·`git diff --check` 제외
+
+## 예시
+
+```
+refactor: 임포트 맵 키 경고 해결
+
+[배경]
+--import-map에 deno.json을 넘기면 WHATWG Import Map 스펙에 없는
+키(name, version, tasks 등)에 대한 경고 발생.
+`- Import map: Invalid top-level key "tasks". Only "imports" and "scopes" can be present.`
+
+[검증]
+- [x] `deno run cli/main.ts` - 경고 제거 확인
+
+AI-assistant: GPT-5.5, Opus 4.6
+```
