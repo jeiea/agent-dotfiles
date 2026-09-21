@@ -15,7 +15,6 @@ export type PublicErrorCode =
   | "usage"
   | "invalid_session_id"
   | "live_option_conflict"
-  | "permission_escalation"
   | "transport_unavailable"
   | "caller_session_unavailable"
   | "session_not_found"
@@ -110,8 +109,8 @@ export function exitCode(code: PublicErrorCode): number {
     code === "caller_session_unavailable" || code === "session_not_found"
   ) return 3;
   if (
-    code === "permission_escalation" || code === "agent_blocked" ||
-    code === "unmanaged_tab" || code === "tab_close_blocked"
+    code === "agent_blocked" || code === "unmanaged_tab" ||
+    code === "tab_close_blocked"
   ) return 4;
   if (code === "timeout") return 6;
   if (code === "cancelled") return 130;

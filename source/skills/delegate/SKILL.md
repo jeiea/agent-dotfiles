@@ -23,7 +23,7 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 
 - 선행 조사는 위임 대상에 맡기고 역할·배경·확인한 사실·작업·종료 조건 전달
   - 호출자만 접근 가능한 정보와 실행 결과 포함
-  - 읽기 전용에서 불가한 검증은 결과 전달 또는 `--permission write`
+  - 기본 write. 읽기 전용 실행이 필요할 때만 `--permission read-only`
 - 종속 세션에 delegate 스킬 등 다른 에이전트 재위임 금지 명시
 - 본문은 heredoc 표준 입력 또는 `--prompt-file`
   - `\n` 이스케이프 대신 실제 개행
@@ -46,7 +46,7 @@ deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt --help
 
 # 새 동기 작업
 deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt \
-  --agent codex --permission read-only <<'PROMPT'
+  --agent codex <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
 

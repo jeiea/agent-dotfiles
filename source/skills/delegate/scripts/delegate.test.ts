@@ -838,6 +838,7 @@ Deno.test("사용자가 native 기본 옵션으로 직접 prompt를 완료하고
   );
   assertEquals(completed.stdout.includes("run_id:"), false);
   assertEquals(normal.fake.calls[0]?.env.HERDR_ENV, undefined);
+  assertEquals(normal.fake.calls[0]?.args.includes("--approve-for-me"), true);
   assertEquals(
     normal.fake.calls[0]?.args.some((arg) =>
       arg.startsWith("model_reasoning_effort=")
@@ -892,6 +893,10 @@ Deno.test("사용자가 native 기본 옵션으로 직접 prompt를 완료하고
   assertStringIncludes(resumed.stdout, "\n\n클로드 재개\n");
   assertEquals(claude.fake.calls[0]?.cwd, claudeCwd);
   assertEquals(
+    claude.fake.calls[0]?.args.includes("--permission-mode=auto"),
+    true,
+  );
+  assertEquals(
     claude.fake.calls[0]?.args.some((arg) => arg.startsWith("--effort=")),
     false,
   );
@@ -910,7 +915,6 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
   let now = 0;
   const sleeps: number[] = [];
   const test = setup(dir.path, "수정 요청", [
-    herdr({ agents: [] }),
     herdr({ agents: [] }),
     herdr({ agents: [] }, {
       onStart: () =>
@@ -951,23 +955,9 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
     },
   });
 
-  const denied = await runDelegate([
-    "prompt",
-    codexId,
-    "--permission",
-    "write",
-    "--caller-id",
-    "caller",
-  ], test.deps);
-  assertEquals(denied.code, 4);
-  assertStringIncludes(denied.stdout, "code: permission_escalation");
-
   const resumed = await runDelegate([
     "prompt",
     codexId,
-    "--permission",
-    "write",
-    "--confirm-escalation",
     "--caller-id",
     "caller",
     "--name",
@@ -3254,7 +3244,7 @@ Deno.test("완료된 작업의 pane 정리가 실패하면 cleanup_failed 경고
   );
 });
 
-Deno.test("live session의 시작 옵션은 writer를 건드리기 전에 충돌로 거부하고 stopped write는 확인을 요구한다", async () => {
+Deno.test("live session의 시작 옵션은 writer를 건드리기 전에 충돌로 거부한다", async () => {
   await using dir = await tempDir();
   writeJsonl(codexPath(dir.path), [codexMeta(), ...codexTurn("old", "old")]);
   const live = setup(dir.path, "후속", [
@@ -3314,21 +3304,6 @@ Deno.test("live session의 시작 옵션은 writer를 건드리기 전에 충돌
     timeoutIndex >= 0 && Number(idlePrompt?.args[timeoutIndex + 1]) <= 1_000,
     true,
   );
-
-  const stopped = setup(dir.path, "후속", [herdr({ agents: [] })], {
-    env: { HERDR_ENV: "1" },
-  });
-  const escalation = await runDelegate([
-    "prompt",
-    codexId,
-    "--permission",
-    "write",
-    "--caller-id",
-    "caller",
-  ], stopped.deps);
-  assertEquals(escalation.code, 4);
-  assertStringIncludes(escalation.stdout, "code: permission_escalation");
-  assertEquals(stopped.fake.calls.length, 1);
 });
 
 Deno.test("직접 실행 자식 환경에서는 모든 HERDR 변수를 제거한다", async () => {
@@ -3384,7 +3359,7 @@ Deno.test("시작 차단 도움말은 원래 prompt를 다시 제출하거나 �
   );
 });
 
-Deno.test("삭제된 명령과 옵션·위치 prompt·확인 없는 write 재개는 실행 전에 거부된다", async () => {
+Deno.test("삭제된 명령과 옵션·위치 prompt는 실행 전에 거부된다", async () => {
   await using dir = await tempDir();
   const base = setup(dir.path, "작업");
   for (
@@ -3393,26 +3368,13 @@ Deno.test("삭제된 명령과 옵션·위치 prompt·확인 없는 write 재개
       ["resume", codexId],
       ["prompt", "위치 본문", "추가 본문"],
       ["prompt", "--keep"],
+      ["prompt", "--confirm-escalation"],
     ]
   ) {
     const result = await runDelegate(args, base.deps);
     assertEquals(result.code, 2);
     assertStringIncludes(result.stdout, "code: usage");
   }
-  writeJsonl(codexPath(dir.path), [
-    codexMeta(),
-    ...codexTurn("t", "old", "done"),
-  ]);
-  const escalation = await runDelegate([
-    "prompt",
-    codexId,
-    "--transport",
-    "direct",
-    "--permission",
-    "write",
-  ], base.deps);
-  assertEquals(escalation.code, 4);
-  assertStringIncludes(escalation.stdout, "code: permission_escalation");
   assertEquals(base.fake.calls, []);
 });
 
@@ -3440,7 +3402,6 @@ Deno.test("공개 오류는 명세의 종료 코드로만 매핑된다", () => {
     usage: 2,
     invalid_session_id: 2,
     live_option_conflict: 2,
-    permission_escalation: 4,
     transport_unavailable: 3,
     caller_session_unavailable: 3,
     session_not_found: 3,

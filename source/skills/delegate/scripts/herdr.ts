@@ -46,8 +46,6 @@ export type HerdrPrompt = {
   name?: string;
   timeoutMs: number;
   startOptionsSpecified: boolean;
-  writeResume: boolean;
-  confirmEscalation: boolean;
 };
 
 type HerdrResult = Record<string, unknown>;
@@ -111,15 +109,6 @@ export async function promptHerdr(
     throw new DelegateError(
       "live_option_conflict",
       "live session에는 시작 전용 옵션을 적용할 수 없습니다",
-    );
-  }
-  if (
-    live == null && expected != null && request.writeResume &&
-    !request.confirmEscalation
-  ) {
-    throw new DelegateError(
-      "permission_escalation",
-      "stopped session의 write 재개에는 --confirm-escalation이 필요합니다",
     );
   }
   const callerId = await withSessionError(

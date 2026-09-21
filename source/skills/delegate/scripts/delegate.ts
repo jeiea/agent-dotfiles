@@ -74,7 +74,6 @@ type PromptOptions = {
   callerId?: string;
   name?: string;
   timeoutMs: number;
-  confirmEscalation: boolean;
 };
 
 type ParsedCommand = PromptOptions | {
@@ -147,7 +146,7 @@ function parser() {
         permission: optional(option(
           "--permission",
           choice(["read-only", "write"] as const),
-          { description: message`기본 read-only. 실행 중 session은 변경 불가` },
+          { description: message`기본 write. 실행 중 session은 변경 불가` },
         )),
         model: optional(option("--model", string({ metavar: "MODEL" }), {
           description: message`native agent 모델. 실행 중 session은 변경 불가`,
@@ -182,9 +181,6 @@ function parser() {
           }),
           1_200_000,
         ),
-        confirmEscalation: option("--confirm-escalation", {
-          description: message`종료된 session을 write로 재개할 때 필수`,
-        }),
       }),
       {
         brief: message`새 native session 시작 또는 기존 session에 후속 prompt`,
@@ -195,8 +191,6 @@ function parser() {
 agent_blocked: 사용자 입력 대기. 시작 차단은 prompt 미제출. blockers의 agent_name으로 herdr agent get/read/send-keys를 사용해 시작 화면 해소. native UUID가 있으면 원래 prompt를 그 SESSION_ID에 다시 제출하고, native UUID가 없으면 보존 pane을 명시적으로 닫고 새 prompt를 재시도
 
 live_option_conflict: 실행 중 session에 --permission·--model·--effort·--add-dir 지정
-
-permission_escalation: 종료 session의 write 재개에 --confirm-escalation 누락
 
 live_session_ambiguous: 같은 session의 다른 재개 진행 중. 완료 뒤 재시도
 
@@ -382,18 +376,8 @@ export async function runDelegate(
         "Herdr 전송을 사용할 수 없습니다",
       );
     }
-    const permission = parsed.permission ?? "read-only";
-    if (
-      transport === "direct" && snapshot != null && permission === "write" &&
-      !parsed.confirmEscalation
-    ) {
-      throw new DelegateError(
-        "permission_escalation",
-        "stopped session의 write 재개에는 --confirm-escalation이 필요합니다",
-      );
-    }
     const request = {
-      permission,
+      permission: parsed.permission ?? "write",
       cwd: snapshot?.cwd ?? deps.cwd,
       addDirs: parsed.addDirs.map((dir) => resolve(deps.cwd, dir)),
       effort: parsed.effort,
@@ -428,8 +412,6 @@ export async function runDelegate(
         name: parsed.name,
         timeoutMs: parsed.timeoutMs,
         startOptionsSpecified,
-        writeResume: snapshot != null && permission === "write",
-        confirmEscalation: parsed.confirmEscalation,
       }, herdrDeps),
     );
   } catch (error) {
