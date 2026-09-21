@@ -12,6 +12,8 @@ export type FakeResponse = Partial<ExecResult> & {
   cmd: string;
   waitForAbort?: boolean;
   onStart?: () => void | Promise<void>;
+  stdoutChunks?: string[];
+  afterOutput?: () => void | Promise<void>;
 };
 
 export function fakeExec(responses: readonly FakeResponse[]): {
@@ -34,6 +36,10 @@ export function fakeExec(responses: readonly FakeResponse[]): {
       throw new Error(`예상한 실행 ${response.cmd}, 실제 ${cmd}`);
     }
     await response.onStart?.();
+    for (const chunk of response.stdoutChunks ?? [response.stdout ?? ""]) {
+      await options.onStdout?.(chunk);
+    }
+    await response.afterOutput?.();
     if (response.waitForAbort) {
       if (!options.signal?.aborted) {
         await new Promise<void>((resolve) =>
@@ -44,13 +50,13 @@ export function fakeExec(responses: readonly FakeResponse[]): {
       }
       return {
         code: null,
-        stdout: response.stdout ?? "",
+        stdout: response.stdoutChunks?.join("") ?? response.stdout ?? "",
         stderr: response.stderr ?? "",
       };
     }
     return {
       code: response.code ?? 0,
-      stdout: response.stdout ?? "",
+      stdout: response.stdoutChunks?.join("") ?? response.stdout ?? "",
       stderr: response.stderr ?? "",
     };
   };

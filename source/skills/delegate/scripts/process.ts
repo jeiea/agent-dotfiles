@@ -12,6 +12,7 @@ export type Exec = (
     env: Record<string, string>;
     stdin?: string;
     signal?: AbortSignal;
+    onStdout?: (chunk: string) => void | Promise<void>;
   },
 ) => Promise<ExecResult>;
 
@@ -26,7 +27,16 @@ export const denoExec: Exec = async (cmd, args, options) => {
     stderr: "piped",
     signal: options.signal,
   }).spawn();
-  const stdout = new Response(child.stdout).text();
+  const stdout = (async () => {
+    let output = "";
+    for await (
+      const chunk of child.stdout.pipeThrough(new TextDecoderStream())
+    ) {
+      output += chunk;
+      await options.onStdout?.(chunk);
+    }
+    return output;
+  })();
   const stderr = new Response(child.stderr).text();
   const writer = child.stdin.getWriter();
   let stdinError: unknown;

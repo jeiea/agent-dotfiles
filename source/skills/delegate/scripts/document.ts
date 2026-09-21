@@ -1,4 +1,12 @@
 import { stringify } from "jsr:@std/yaml@^1";
+import type { PublicEvent } from "./activity.ts";
+
+export type NativeObservation = {
+  request_state: "completed" | "incomplete" | "aborted" | "unknown";
+  last_activity_at?: string;
+  last_activity?: PublicEvent;
+  partial_record: boolean;
+};
 
 export type PublicActivity =
   | "working"
@@ -51,6 +59,7 @@ export type DelegateDocument = {
   session_id?: NativeSessionId;
   agent?: "codex" | "claude";
   activity?: PublicActivity;
+  observation?: NativeObservation;
   intervening_prompts?: string[];
   result?: string;
   error?: {

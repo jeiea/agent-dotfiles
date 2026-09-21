@@ -18,7 +18,14 @@ import { path, run } from "jsr:@optique/run@^1.2";
 import { resolve } from "jsr:@std/path@^1";
 import { parseClaudeEvents, planClaude } from "./claude.ts";
 import { parseCodexEvents, planCodex } from "./codex.ts";
-import { directAbortStatus, startDirect } from "./direct.ts";
+import {
+  closeDirect,
+  directAbortStatus,
+  startDirect,
+  statusDirect,
+  waitDirect,
+} from "./direct.ts";
+import { publicEvents } from "./activity.ts";
 import {
   type DelegateDocument,
   DelegateError,
@@ -59,6 +66,7 @@ export type Deps = {
   signal: AbortSignal;
   now?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  progress?: (text: string) => void | Promise<void>;
 };
 
 type PromptOptions = {
@@ -185,7 +193,11 @@ function parser() {
       {
         brief: message`새 native session 시작 또는 기존 session에 후속 prompt`,
         description:
-          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
+          message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환.
+
+직접 실행은 실제 이벤트 발생 시 표준 오류 JSONL로 transport, agent, 확인된 session_id, kind, 선택적 tool 전달. 도구 인자·결과, 응답 본문·비공개 사고 과정 제외. 주기 알림 없음.
+
+Herdr는 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. Herdr 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
         footer: message`error.code 대응
 
 agent_blocked: 사용자 입력 대기. 시작 차단은 prompt 미제출. blockers의 agent_name으로 herdr agent get/read/send-keys를 사용해 시작 화면 해소. native UUID가 있으면 원래 prompt를 그 SESSION_ID에 다시 제출하고, native UUID가 없으면 보존 pane을 명시적으로 닫고 새 prompt를 재시도
@@ -219,7 +231,19 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`session activity 조회`,
         description:
-          message`activity: working | blocked(사용자 입력 대기) | quiescent | not_live(pane 없음) | unknown`,
+          message`추가 진단용. Herdr 창이 있으면 activity: working | blocked(사용자 입력 대기) | quiescent | unknown. 창이 없으면 생존 근거가 없어 unknown, 원본 기록 관찰은 observation에 별도 표시. unknown·출력 부재·미완료 기록만으로 프로세스 종료·실패 단정 금지.
+
+observation 필드
+
+request_state: 최신 요청의 completed(완료) | incomplete(미완료) | aborted(중단) | unknown(요청 없음)
+
+last_activity_at: 완전한 기록 중 마지막 유효 시각. 없으면 생략
+
+last_activity: 마지막으로 해석한 공개 활동 종류와 선택적 도구 이름
+
+partial_record: 끝에 미완성 JSONL 기록 존재 여부
+
+last_activity_at과 last_activity는 서로 다른 기록을 가리킬 수 있음`,
       },
     ),
     (value) => ({ kind: "status" as const, ...value }),
@@ -246,7 +270,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`실행 중 session 완료 대기`,
         description:
-          message`대기 시작 뒤 추가된 사람 prompt는 intervening_prompts, 마지막 result는 마크다운 본문으로 반환. 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 오류 의미는 prompt와 동일`,
+          message`호출 연결 유실 뒤 결과 회수용. Herdr 창이 없으면 원본 기록의 최신 요청 종료를 대기. 최신 요청이 이미 완료됐고 부분 기록이 없으면 즉시 결과 반환. 진행·부분 기록 앞의 이전 완료 결과는 반환하지 않으며, 종료 기록이 없으면 제한 시간까지 대기. 생존은 unknown 유지. 대기 시작 뒤 추가된 사람 prompt는 intervening_prompts, 마지막 result는 마크다운 본문으로 반환. Herdr 창이 있으면 성공 후 관리 pane 자동 정리. 오류 의미는 prompt와 동일`,
       },
     ),
     (value) => ({ kind: "wait" as const, ...value }),
@@ -266,7 +290,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`native 기록의 사람·최종 assistant 대화 렌더`,
         description:
-          message`pane 화면이 아닌 native 기록 기준이라 pane 종료 뒤에도 사용 가능`,
+          message`추가 진단용. pane 화면이 아닌 native 기록의 대화와 observation을 반환하므로 pane 종료 뒤에도 사용 가능. observation 필드는 status --help 참조. 도구 인자·결과 전체와 비공개 사고 과정은 제외`,
       },
     ),
     (value) => ({ kind: "logs" as const, ...value }),
@@ -283,7 +307,7 @@ cleanup_failed: 정리만 실패. 필요 시 close`,
       {
         brief: message`실행 중이면 취소한 뒤 pane과 빈 탭 정리`,
         description:
-          message`prompt·wait가 자동 정리하지 못했거나 작업을 중단할 때 사용. pane 잠금 대기는 최대 60초이며 초과 시 timeout`,
+          message`연결된 Herdr 창만 제어. 창이 없으면 transport_unavailable 오류. 직접 실행은 prompt를 실행한 호스트 세션에서 중단. Herdr의 prompt·wait가 자동 정리하지 못했거나 작업을 중단할 때 사용. pane 잠금 대기는 최대 60초이며 초과 시 timeout`,
       },
     ),
     (value) => ({ kind: "close" as const, ...value }),
@@ -303,7 +327,7 @@ export async function runDelegate(
       programName: "delegate",
       brief: message`Codex·Claude native session 위임`,
       description:
-        message`출력은 YAML 프런트매터와 선택적 마크다운 본문. session_id, agent, activity, intervening_prompts, error, warnings, retry는 프런트매터, result는 본문. intervening_prompts는 추가 사람 프롬프트가 있을 때만 반환`,
+        message`출력은 YAML 프런트매터와 선택적 마크다운 본문. session_id, agent, activity, observation, intervening_prompts, error, warnings, retry는 프런트매터, result는 본문. observation은 logs와 Herdr 창 없는 status·wait의 원본 기록 관찰. intervening_prompts는 추가 사람 프롬프트가 있을 때만 반환`,
       footer:
         message`exit code: 2 usage, 3 환경·session 없음, 4 사용자 조치 필요, 5 실패, 6 timeout, 130 중단`,
       args,
@@ -338,19 +362,34 @@ export async function runDelegate(
   try {
     if (parsed.kind !== "prompt") {
       const snapshot = await findNativeSession(parsed.target, deps.env);
+      if (
+        parsed.kind === "wait" && snapshot.agent === "claude" &&
+        parsed.name != null
+      ) {
+        throw new DelegateError(
+          "usage",
+          "Claude wait에는 --name을 사용할 수 없습니다",
+        );
+      }
       if (parsed.kind === "logs") {
         return success({
           session_id: snapshot.sessionId,
           agent: snapshot.agent,
+          observation: snapshot.observation,
           result: tail(renderConversation(snapshot), parsed.lines),
         });
       }
       if (deps.env.HERDR_ENV !== "1") {
-        return success({
-          session_id: snapshot.sessionId,
-          agent: snapshot.agent,
-          activity: "not_live",
-        });
+        if (parsed.kind === "status") return success(statusDirect(snapshot));
+        if (parsed.kind === "wait") {
+          return success(
+            await waitDirect(snapshot, {
+              ...herdrDeps,
+              timeoutMs: parsed.timeoutMs,
+            }),
+          );
+        }
+        return closeDirect();
       }
       if (parsed.kind === "status") {
         return success(await statusHerdr(snapshot, herdrDeps));
@@ -444,16 +483,52 @@ async function executeDirect(
 ) {
   let handle;
   let output;
+  let sessionId = expectedSessionId;
+  let pending = "";
+  const tools = new Map<string, string>();
+  const onStdout = async (chunk: string) => {
+    pending += chunk;
+    const lines = pending.split("\n");
+    pending = lines.pop()!;
+    for (const line of lines) {
+      let value: unknown;
+      try {
+        value = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      for (const event of publicEvents(invocation.agent, value, tools)) {
+        if (event.session_id != null) {
+          if (!sessionIdPattern.test(event.session_id)) continue;
+          sessionId = event.session_id;
+        }
+        await deps.progress?.(`${
+          JSON.stringify({
+            transport: "direct",
+            agent: invocation.agent,
+            session_id: sessionId,
+            ...event,
+          })
+        }\n`);
+      }
+    }
+  };
   try {
-    handle = startDirect(invocation, { ...deps, cwd }, timeoutMs);
+    handle = startDirect(invocation, { ...deps, cwd, onStdout }, timeoutMs);
     output = await handle.output;
+    if (pending.trim() !== "") await onStdout("\n");
   } catch (error) {
+    const aborted = handle == null ? undefined : directAbortStatus(handle);
     return failure(
       new DelegateError(
-        "agent_failed",
+        aborted === "cancelled"
+          ? "cancelled"
+          : aborted === "timed_out"
+          ? "timeout"
+          : "agent_failed",
         error instanceof Error ? error.message : String(error),
       ),
-      expectedSessionId,
+      sessionId,
       invocation.agent,
     );
   }
@@ -467,9 +542,9 @@ async function executeDirect(
         aborted === "cancelled" ? "cancelled" : "timeout",
         aborted === "cancelled" ? "호출자 중단" : "실행 제한 시간 초과",
         undefined,
-        parsed.sessionId ?? expectedSessionId,
+        parsed.sessionId ?? sessionId,
       ),
-      parsed.sessionId ?? expectedSessionId,
+      parsed.sessionId ?? sessionId,
       invocation.agent,
     );
   }
@@ -493,7 +568,7 @@ async function executeDirect(
         parsed.error ??
           (output.stderr.trim() || "에이전트 결과를 해석할 수 없습니다"),
       ),
-      parsed.sessionId ?? expectedSessionId,
+      parsed.sessionId ?? sessionId,
       invocation.agent,
     );
   }
@@ -563,11 +638,15 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
       reject(new DOMException("Aborted", "AbortError"));
       return;
     }
-    const timer = setTimeout(resolveSleep, ms);
-    signal.addEventListener("abort", () => {
+    const onAbort = () => {
       clearTimeout(timer);
       reject(new DOMException("Aborted", "AbortError"));
-    }, { once: true });
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolveSleep();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -631,6 +710,7 @@ async function main(): Promise<void> {
       },
       cwd: Deno.cwd(),
       signal: controller.signal,
+      progress: (text) => writeText(Deno.stderr, text),
     });
     await writeText(Deno.stdout, result.stdout);
     await writeText(Deno.stderr, result.stderr);

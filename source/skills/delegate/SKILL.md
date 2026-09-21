@@ -29,14 +29,16 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 # 실행·정리
 
 - 일반 위임은 아래 스크립트 사용
-  - `herdr agent start/prompt/read` 직접 조립은 위임 디버깅 등 예외에 한정
-- 코덱스는 제한 시간 오류에 대비해 `exec_command` 전체 출력·종료 상태 확인
+  - `herdr agent start/prompt/read` 직접 조립·프로세스·원본 기록 조회는 스크립트
+    진단 결함 조사에 한정
+- 호스트 도구가 실행 세션을 반환하면 해당 세션으로 대기해 최종 출력·종료 상태
+  확인
 - 옵션·출력·오류 대응은 하위 명령 `--help` 확인
   - 터미널 멀티플렉서 herdr의 예외 정보는 `herdr --skill` 확인
 - 식별자는 코덱스·클로드 네이티브 세션 ID
-- `prompt`·`wait` 성공 시 터미널 분할 창 자동 정리
+- Herdr의 `prompt`·`wait` 성공 시 터미널 분할 창 자동 정리
   - 같은 ID로 대화 재개 가능
-  - `close`는 중단·자동 정리 실패 시 사용
+  - `close`는 Herdr 창의 중단·자동 정리 실패 시 사용
 
 ```sh
 deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt --help

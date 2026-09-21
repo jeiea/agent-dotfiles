@@ -1,4 +1,5 @@
 import { basename, join, relative, SEPARATOR } from "jsr:@std/path@^1";
+import { object, publicEvents } from "./activity.ts";
 import { parseClaudeSession } from "./claude.ts";
 import {
   type NativeRecord,
@@ -6,7 +7,11 @@ import {
   type ParsedSession,
   type ParsedTurn,
 } from "./codex.ts";
-import { DelegateError, type NativeSessionId } from "./document.ts";
+import {
+  DelegateError,
+  type NativeObservation,
+  type NativeSessionId,
+} from "./document.ts";
 import { type Agent, stripDelegatePromptPrefix } from "./select.ts";
 
 export const sessionIdPattern =
@@ -26,7 +31,9 @@ export type SharedSession = {
   cwd: string;
   path: string;
   cursor: NativeCursor;
+  bytes: Uint8Array;
   turns: ParsedTurn[];
+  observation: NativeObservation;
 };
 
 export type PromptOutcome = {
@@ -92,6 +99,15 @@ export function cursorEquals(
   return left.identity === right.identity &&
     left.byteLength === right.byteLength &&
     left.lastRecord === right.lastRecord && left.partial === right.partial;
+}
+
+export function continuesNativeSession(
+  initial: SharedSession,
+  current: SharedSession,
+): boolean {
+  return initial.cursor.identity === current.cursor.identity &&
+    initial.bytes.length <= current.bytes.length &&
+    initial.bytes.every((byte, index) => byte === current.bytes[index]);
 }
 
 export function outcomeAfter(
@@ -166,11 +182,35 @@ async function readSnapshot(candidate: Candidate): Promise<SharedSession> {
   assertSessionId(parsed.sessionId);
   const info = await Deno.stat(path);
   const identity = `${String(info.dev ?? "")}:${String(info.ino ?? path)}`;
+  const latest = parsed.turns.at(-1);
+  const observation: NativeObservation = {
+    request_state: latest == null
+      ? "unknown"
+      : latest.aborted
+      ? "aborted"
+      : latest.completed
+      ? "completed"
+      : "incomplete",
+    partial_record: partial,
+  };
+  const tools = new Map<string, string>();
+  for (const record of records) {
+    const event = object(record.value);
+    if (
+      typeof event.timestamp === "string" &&
+      Number.isFinite(Date.parse(event.timestamp))
+    ) {
+      observation.last_activity_at = event.timestamp;
+    }
+    const activity = publicEvents(candidate.agent, record.value, tools).at(-1);
+    if (activity != null) observation.last_activity = activity;
+  }
   return {
     sessionId: parsed.sessionId,
     agent: candidate.agent,
     cwd: parsed.cwd,
     path,
+    bytes: data,
     cursor: {
       path,
       identity,
@@ -179,6 +219,7 @@ async function readSnapshot(candidate: Candidate): Promise<SharedSession> {
       partial,
     },
     turns: parsed.turns,
+    observation,
   };
 }
 

@@ -690,8 +690,8 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
     "--caller-id",
     "caller-1",
   ], start.deps);
-  assertEquals(closed.code, 0);
-  assertStringIncludes(closed.stdout, "activity: not_live");
+  assertEquals(closed.code, 3);
+  assertStringIncludes(closed.stdout, "code: transport_unavailable");
 
   await using deadlineDir = await tempDir();
   const deadlinePath = codexPath(deadlineDir.path);
@@ -3441,11 +3441,462 @@ Deno.test("공개 오류는 명세의 종료 코드로만 매핑된다", () => {
 });
 
 Deno.test("자식이 stdin을 읽기 전에 종료돼도 stdout과 종료 상태를 회수한다", async () => {
+  const chunks: string[] = [];
   const result = await denoExec("git", ["--version"], {
     cwd: Deno.cwd(),
     env: { PATH: Deno.env.get("PATH") ?? "" },
     stdin: "x".repeat(1_000_000),
+    onStdout: (chunk) => {
+      chunks.push(chunk);
+    },
   });
   assertEquals(result.code, 0);
   assertStringIncludes(result.stdout, "git version");
+  assertEquals(chunks.join(""), result.stdout);
+});
+
+Deno.test("직접 요청은 종료 전에 공개 활동을 전달하고 민감한 내용과 최종 응답을 진행 출력에 섞지 않는다", async () => {
+  await using dir = await tempDir();
+  for (const agent of ["codex", "claude"] as const) {
+    const progress: string[] = [];
+    const events = agent === "codex"
+      ? [
+        { type: "thread.started", thread_id: codexId },
+        { type: "turn.started" },
+        {
+          type: "item.completed",
+          item: { type: "reasoning", text: "private-reasoning" },
+        },
+        {
+          type: "item.started",
+          item: { type: "command_execution", command: "secret-argument" },
+        },
+        {
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            aggregated_output: "secret-output",
+          },
+        },
+        {
+          type: "item.completed",
+          item: { type: "agent_message", text: "최종 답변" },
+        },
+        { type: "turn.completed" },
+      ]
+      : [
+        { type: "system", subtype: "init", session_id: claudeId },
+        {
+          type: "assistant",
+          message: {
+            content: [
+              { type: "thinking", thinking: "private-reasoning" },
+              {
+                type: "tool_use",
+                id: "call",
+                name: "Read",
+                input: "secret-argument",
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [{
+              type: "tool_result",
+              tool_use_id: "call",
+              content: "secret-output",
+            }],
+          },
+        },
+        {
+          type: "result",
+          session_id: claudeId,
+          subtype: "success",
+          is_error: false,
+          result: "최종 답변",
+        },
+      ];
+    const output = events.map(line).join("");
+    const test = setup(dir.path, "작업", [{
+      cmd: agent,
+      stdoutChunks: [output.slice(0, 17), output.slice(17)],
+      afterOutput: () => {
+        assertStringIncludes(
+          progress.join(""),
+          agent === "codex" ? codexId : claudeId,
+        );
+        assertStringIncludes(progress.join(""), "direct");
+        assertStringIncludes(progress.join(""), "tool_started");
+        assertStringIncludes(progress.join(""), "tool_completed");
+      },
+    }]);
+    const result = await runDelegate(["prompt", "--agent", agent], {
+      ...test.deps,
+      ...{
+        progress: (text: string) => {
+          progress.push(text);
+        },
+      },
+    });
+    assertEquals(result.code, 0);
+    assertEquals(
+      result.stdout,
+      `---\nsession_id: ${
+        agent === "codex" ? codexId : claudeId
+      }\nagent: ${agent}\nactivity: quiescent\n---\n\n최종 답변\n`,
+    );
+    for (
+      const secret of [
+        "private-reasoning",
+        "secret-argument",
+        "secret-output",
+        "최종 답변",
+      ]
+    ) {
+      assertEquals(progress.join("").includes(secret), false);
+    }
+  }
+});
+
+Deno.test("직접 세션의 상태와 로그는 생존을 추측하지 않고 최신 미완료 요청과 공개 활동을 표시한다", async () => {
+  await using dir = await tempDir();
+  const path = codexPath(dir.path);
+  writeJsonl(path, [
+    codexMeta(),
+    ...codexTurn("old", "이전 요청", "이전 답변"),
+    ...codexTurn("new", "새 요청"),
+    {
+      type: "response_item",
+      timestamp: "2026-09-22T01:02:03Z",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: "secret-argument",
+      },
+    },
+    {
+      type: "response_item",
+      timestamp: "2026-09-22T01:02:04Z",
+      payload: { type: "reasoning", summary: "private-reasoning" },
+    },
+  ], '{"type":"event_msg"');
+  for (const herdrEnv of [false, true]) {
+    const test = setup(dir.path, "", herdrEnv ? [herdr({ agents: [] })] : [], {
+      env: herdrEnv ? { HERDR_ENV: "1" } : {},
+    });
+    const status = await runDelegate(["status", codexId], test.deps);
+    assertStringIncludes(status.stdout, "activity: unknown");
+    assertStringIncludes(status.stdout, "request_state: incomplete");
+    assertStringIncludes(status.stdout, "2026-09-22T01:02:04Z");
+    const logs = await runDelegate(["logs", codexId], test.deps);
+    assertStringIncludes(logs.stdout, "tool_started");
+    assertStringIncludes(logs.stdout, "exec_command");
+    assertStringIncludes(logs.stdout, "partial_record: true");
+    assertStringIncludes(logs.stdout, "이전 답변");
+    assertStringIncludes(logs.stdout, "새 요청");
+    assertEquals(logs.stdout.includes("secret-argument"), false);
+    assertEquals(logs.stdout.includes("private-reasoning"), false);
+  }
+});
+
+Deno.test("직접 대기는 이전 답변을 반환하지 않고 부분 기록이 완성된 최신 요청 결과를 기다린다", async () => {
+  await using dir = await tempDir();
+  const path = codexPath(dir.path);
+  writeJsonl(path, [
+    codexMeta(),
+    ...codexTurn("old", "이전 요청", "이전 답변"),
+    ...codexTurn("new", "새 요청").slice(0, 2),
+  ], '{"type":"turn_context"');
+  let sleeps = 0;
+  let now = 0;
+  const test = setup(dir.path, "", [], {
+    now: () => now,
+    sleep: (ms) => {
+      now += ms;
+      sleeps++;
+      if (sleeps === 2) {
+        writeJsonl(path, [
+          codexMeta(),
+          ...codexTurn("old", "이전 요청", "이전 답변"),
+          ...codexTurn("new", "새 요청", "새 답변"),
+        ]);
+      }
+      return Promise.resolve();
+    },
+  });
+  const result = await runDelegate(
+    ["wait", codexId, "--timeout", "2s"],
+    test.deps,
+  );
+  assertEquals(result.code, 0);
+  assertEquals(sleeps, 2);
+  assertStringIncludes(result.stdout, "새 답변");
+  assertEquals(result.stdout.includes("이전 답변"), false);
+  assertEquals(result.stdout.includes("intervening_prompts"), false);
+  assertStringIncludes(result.stdout, "activity: unknown");
+});
+
+Deno.test("대기 중 같은 기록 파일을 잘랐다가 더 길게 다시 써도 교체 요청의 결과를 반환하지 않는다", async () => {
+  await using dir = await tempDir();
+  const path = codexPath(dir.path);
+  writeJsonl(path, [codexMeta(), ...codexTurn("target", "원래 요청")]);
+  const before = Deno.statSync(path);
+  let now = 0;
+  const test = setup(dir.path, "", [], {
+    now: () => now,
+    sleep: (ms) => {
+      now += ms;
+      Deno.truncateSync(path, 0);
+      appendJsonl(path, [
+        codexMeta(),
+        ...codexTurn("target", "교체 요청", "반환하면 안 되는 교체 결과"),
+      ]);
+      const after = Deno.statSync(path);
+      assertEquals(after.ino, before.ino);
+      assertEquals(after.size > before.size, true);
+      return Promise.resolve();
+    },
+  });
+  const result = await runDelegate(
+    ["wait", codexId, "--timeout", "1s"],
+    test.deps,
+  );
+  assertEquals(result.code, 5);
+  assertStringIncludes(result.stdout, "code: invalid_native_session");
+  assertEquals(result.stdout.includes("반환하면 안 되는 교체 결과"), false);
+});
+
+Deno.test("클로드 대기의 이름 지정은 Herdr와 직접 실행 모두 사용법 오류로 거부한다", async () => {
+  await using dir = await tempDir();
+  writeJsonl(claudePath(dir.path), [
+    ...claudeOpen("요청"),
+    {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "답변" }] },
+    },
+    { type: "system", subtype: "turn_duration" },
+  ]);
+  for (const herdrEnv of [true, false]) {
+    const test = setup(dir.path, "", [], {
+      env: herdrEnv ? { HERDR_ENV: "1" } : {},
+    });
+    const result = await runDelegate(
+      ["wait", claudeId, "--name", "검토"],
+      test.deps,
+    );
+    assertEquals(result.code, 2, herdrEnv ? "Herdr" : "직접 실행");
+    assertStringIncludes(result.stdout, "code: usage");
+    assertStringIncludes(
+      result.stdout,
+      "Claude wait에는 --name을 사용할 수 없습니다",
+    );
+    assertEquals(test.fake.calls, []);
+  }
+});
+
+Deno.test("직접 대기는 중단 기록과 호출자 취소를 구별하고 종료 근거 없는 기록은 시간 제한까지 기다린다", async () => {
+  await using dir = await tempDir();
+  const path = codexPath(dir.path);
+  for (
+    const scenario of [
+      "aborted",
+      "cancelled",
+      "silent",
+      "partial",
+      "partial_after_abort",
+    ] as const
+  ) {
+    writeJsonl(
+      path,
+      [
+        codexMeta(),
+        ...codexTurn(
+          "new",
+          "새 요청",
+          undefined,
+          scenario === "aborted" || scenario === "partial_after_abort"
+            ? "aborted"
+            : "open",
+        ),
+      ],
+      scenario === "partial" || scenario === "partial_after_abort"
+        ? '{"type":"event_msg","payload":{"type":"task_complete"'
+        : "",
+    );
+    let now = 0;
+    const controller = new AbortController();
+    const test = setup(dir.path, "", [], {
+      signal: controller.signal,
+      now: () => now,
+      sleep: (ms) => {
+        now += ms;
+        if (scenario === "cancelled") {
+          controller.abort();
+          return Promise.reject(new DOMException("Aborted", "AbortError"));
+        }
+        return Promise.resolve();
+      },
+    });
+    const result = await runDelegate(
+      ["wait", codexId, "--timeout", "1s"],
+      test.deps,
+    );
+    assertEquals(
+      result.code,
+      scenario === "aborted" || scenario === "cancelled" ? 130 : 6,
+      scenario,
+    );
+    assertStringIncludes(result.stdout, codexId);
+    if (scenario === "silent" || scenario === "partial") {
+      assertEquals(
+        now,
+        1_000,
+      );
+    }
+  }
+});
+
+Deno.test("직접 실행을 제어할 수 없는 닫기 요청은 지원 범위를 알리는 오류를 반환한다", async () => {
+  await using dir = await tempDir();
+  writeJsonl(codexPath(dir.path), [
+    codexMeta(),
+    ...codexTurn("new", "새 요청"),
+  ]);
+  for (const herdrEnv of [false, true]) {
+    const test = setup(dir.path, "", herdrEnv ? [herdr({ agents: [] })] : [], {
+      env: herdrEnv ? { HERDR_ENV: "1" } : {},
+    });
+    const result = await runDelegate(["close", codexId], test.deps);
+    assertEquals(result.code, 3);
+    assertStringIncludes(result.stdout, "code: transport_unavailable");
+    assertStringIncludes(result.stdout, "Herdr");
+  }
+});
+
+Deno.test("창 없는 클로드 세션도 새 요청 뒤 추가 요청까지 마친 결과와 공개 도구 활동을 회수한다", async () => {
+  await using dir = await tempDir();
+  const path = claudePath(dir.path);
+  const completed = [
+    ...claudeOpen("이전 요청"),
+    {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "이전 답변" }] },
+    },
+    { type: "system", subtype: "turn_duration" },
+  ];
+  writeJsonl(path, completed, '{"type":"user"');
+  let now = 0;
+  const test = setup(dir.path, "", [herdr({ agents: [] })], {
+    env: { HERDR_ENV: "1" },
+    now: () => now,
+    sleep: (ms) => {
+      now += ms;
+      writeJsonl(path, [
+        ...completed,
+        ...claudeOpen("새 요청"),
+        {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "새 답변" }] },
+        },
+        { type: "system", subtype: "turn_duration" },
+        ...claudeOpen("추가 요청"),
+        {
+          type: "assistant",
+          message: {
+            content: [{
+              type: "tool_use",
+              id: "call",
+              name: "Read",
+              input: "secret-argument",
+            }],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [{
+              type: "tool_result",
+              tool_use_id: "call",
+              content: "secret-output",
+            }],
+          },
+        },
+      ]);
+      if (now >= 500) {
+        appendJsonl(path, [
+          {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "추가 답변" }] },
+          },
+          { type: "system", subtype: "turn_duration" },
+        ]);
+      }
+      return Promise.resolve();
+    },
+  });
+  const result = await runDelegate(
+    ["wait", claudeId, "--timeout", "2s"],
+    test.deps,
+  );
+  assertEquals(result.code, 0);
+  assertStringIncludes(result.stdout, "추가 답변");
+  assertStringIncludes(result.stdout, "intervening_prompts:\n  - 추가 요청");
+  assertEquals(result.stdout.includes("이전 답변"), false);
+  assertEquals(now, 500);
+  writeJsonl(path, [
+    ...claudeOpen("도구 실행"),
+    {
+      type: "assistant",
+      message: {
+        content: [{
+          type: "tool_use",
+          id: "call",
+          name: "Read",
+          input: "secret-argument",
+        }],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        content: [{
+          type: "tool_result",
+          tool_use_id: "call",
+          content: "secret-output",
+        }],
+      },
+    },
+  ]);
+  const logs = await runDelegate(["logs", claudeId], test.deps);
+  assertStringIncludes(logs.stdout, "tool_completed");
+  assertStringIncludes(logs.stdout, "Read");
+  assertEquals(logs.stdout.includes("secret-"), false);
+});
+
+Deno.test("직접 요청의 비정상 종료와 불완전 출력도 먼저 관찰한 세션과 실패 상태를 보존한다", async () => {
+  await using dir = await tempDir();
+  for (const agent of ["codex", "claude"] as const) {
+    const id = agent === "codex" ? codexId : claudeId;
+    const event = agent === "codex"
+      ? { type: "thread.started", thread_id: id }
+      : { type: "system", subtype: "init", session_id: id };
+    const progress: string[] = [];
+    const test = setup(dir.path, "작업", [{
+      cmd: agent,
+      code: 1,
+      stdoutChunks: [line(event), '{"type":'],
+    }]);
+    const result = await runDelegate(["prompt", "--agent", agent], {
+      ...test.deps,
+      progress: (text) => {
+        progress.push(text);
+      },
+    });
+    assertEquals(result.code, 5);
+    assertStringIncludes(result.stdout, id);
+    assertStringIncludes(result.stdout, "code: agent_failed");
+    assertEquals(progress.length, 1);
+  }
 });

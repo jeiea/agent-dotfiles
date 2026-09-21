@@ -1,4 +1,5 @@
 import { isAbsolute } from "jsr:@std/path@^1";
+import { closeDirect, statusDirect, waitDirect } from "./direct.ts";
 import type {
   Blocker,
   DelegateDocument,
@@ -316,9 +317,10 @@ export async function statusHerdr(
   deps: HerdrDeps,
 ): Promise<DelegateDocument> {
   const live = await findLiveAgent(snapshot, deps);
+  if (live == null) return statusDirect(snapshot);
   return document(
     snapshot,
-    live == null ? "not_live" : activityOf(live.status),
+    activityOf(live.status),
   );
 }
 
@@ -331,14 +333,13 @@ export async function waitHerdr(
   },
   deps: HerdrDeps,
 ): Promise<DelegateDocument> {
-  if (snapshot.agent === "claude" && options.name != null) {
-    throw new DelegateError(
-      "usage",
-      "Claude wait에는 --name을 사용할 수 없습니다",
-    );
-  }
   const live = await findLiveAgent(snapshot, deps);
-  if (live == null) return document(snapshot, "not_live");
+  if (live == null) {
+    return await waitDirect(snapshot, {
+      ...deps,
+      timeoutMs: options.timeoutMs,
+    });
+  }
   const deadline = deps.now() + options.timeoutMs;
   const boundaryCursor = snapshot.cursor;
   const boundary = latestHumanBoundary(snapshot);
@@ -379,8 +380,9 @@ export async function closeHerdr(
   deps: HerdrDeps,
 ): Promise<DelegateDocument> {
   const live = await findLiveAgent(snapshot, deps);
+  if (live == null) return closeDirect();
   if (
-    live == null || live.tabId == null || live.paneId == null ||
+    live.tabId == null || live.paneId == null ||
     live.workspaceId == null
   ) {
     return document(snapshot, "not_live");

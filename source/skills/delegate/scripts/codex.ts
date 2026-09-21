@@ -14,6 +14,7 @@ export type ParsedTurn = {
   prompt: string;
   assistant?: string;
   completed: boolean;
+  aborted?: boolean;
   start: number;
   end: number;
 };
@@ -156,7 +157,10 @@ export function parseCodexSession(
         }
         active.fallbackPrompt = text;
       }
-      if (payload.role === "assistant" && text !== "") {
+      if (
+        payload.role === "assistant" && payload.phase !== "analysis" &&
+        text !== ""
+      ) {
         active.assistant.push(text);
       }
       continue;
@@ -176,13 +180,14 @@ export function parseCodexSession(
           ? { assistant: active.assistant.at(-1) }
           : {}),
         completed,
+        ...(!completed ? { aborted: true } : {}),
         start: active.start,
         end: record.end,
       });
       active = undefined;
     }
   }
-  if (active?.context === true) {
+  if (active != null) {
     turns.push({
       prompt: active.sawPromptMetadata
         ? (active.metadataPrompt ?? "")
