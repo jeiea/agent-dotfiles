@@ -767,7 +767,21 @@ async function startAgent(
       }
     }
   } catch (error) {
-    throw normalizeError(error);
+    const normalized = normalizeError(error);
+    if (normalized.code === "agent_blocked") {
+      throw new DelegateError(
+        "agent_blocked",
+        `${normalized.message}; agent start가 완료되지 않아 prompt를 제출하지 않았습니다`,
+        [{
+          pane_id: pane.paneId,
+          agent_name: name,
+          status: "blocked",
+        }],
+        normalized.sessionId,
+        normalized.retry,
+      );
+    }
+    throw normalized;
   }
   return {
     live: mergeReportedLive({
@@ -1462,7 +1476,11 @@ async function json(
     if (parsed.code === "timeout") {
       throw new DelegateError("timeout", parsed.message);
     }
-    if (parsed.code === "agent_blocked") {
+    if (
+      parsed.code === "agent_blocked" ||
+      (parsed.code === "agent_not_ready" && args[0] === "agent" &&
+        args[1] === "start")
+    ) {
       throw new DelegateError("agent_blocked", parsed.message);
     }
     throw new DelegateError("herdr_failed", parsed.message);

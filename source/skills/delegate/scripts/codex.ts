@@ -30,6 +30,8 @@ export function planCodex(request: PlanRequest): NativeInvocation {
     : ["--approve-for-me"];
   const globals = [
     "--search",
+    "-c",
+    "check_for_update_on_startup=false",
     ...permission,
     "-C",
     request.cwd,

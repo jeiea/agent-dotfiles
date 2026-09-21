@@ -179,10 +179,14 @@ function herdr(
 }
 
 function herdrFailure(message: string): FakeResponse {
+  return herdrError("herdr_failed", message);
+}
+
+function herdrError(code: string, message: string): FakeResponse {
   return {
     cmd: "herdr",
     code: 1,
-    stderr: JSON.stringify({ error: { code: "herdr_failed", message } }),
+    stderr: JSON.stringify({ error: { code, message } }),
   };
 }
 
@@ -834,7 +838,6 @@ Deno.test("사용자가 native 기본 옵션으로 직접 prompt를 완료하고
   );
   assertEquals(completed.stdout.includes("run_id:"), false);
   assertEquals(normal.fake.calls[0]?.env.HERDR_ENV, undefined);
-  assertEquals(normal.fake.calls[0]?.args.includes("-c"), false);
   assertEquals(
     normal.fake.calls[0]?.args.some((arg) =>
       arg.startsWith("model_reasoning_effort=")
@@ -1312,11 +1315,65 @@ Deno.test("기존 관리 pane이나 다른 이유로 시작이 거부되면 곧�
   }
 });
 
+Deno.test("시작 중 준비되지 않은 agent는 prompt를 제출하거나 pane을 닫지 않고 대응 위치를 반환한다", async () => {
+  for (const resume of [false, true]) {
+    await using dir = await tempDir();
+    if (resume) {
+      writeJsonl(codexPath(dir.path), [
+        codexMeta(),
+        ...codexTurn("old", "이전", "완료"),
+      ]);
+    }
+    const reason = "interactive startup screen requires input";
+    const test = setup(dir.path, "작업", [
+      ...(resume ? [herdr({ agents: [] }), herdr({ agents: [] })] : []),
+      ...newTabAllocation(),
+      herdrError("agent_not_ready", reason),
+    ], { env: { HERDR_ENV: "1" } });
+
+    const result = await runDelegate([
+      "prompt",
+      ...(resume ? [codexId] : []),
+      "--agent",
+      "codex",
+      "--caller-id",
+      "caller",
+    ], test.deps);
+    const start = test.fake.calls.find((call) => call.args[1] === "start");
+    const agentName = start?.args[2];
+
+    assertEquals(result.code, 4, String(resume));
+    assertStringIncludes(result.stdout, "code: agent_blocked");
+    assertStringIncludes(result.stdout, reason);
+    assertStringIncludes(result.stdout, "prompt를 제출하지 않았습니다");
+    assertStringIncludes(result.stdout, "pane_id: pane-delegate");
+    assertStringIncludes(result.stdout, `agent_name: ${agentName}`);
+    assertStringIncludes(result.stdout, "status: blocked");
+    assertEquals(
+      result.stdout.includes(`session_id: ${codexId}`),
+      resume,
+      String(resume),
+    );
+    assertEquals(
+      test.fake.calls.some((call) => call.args[1] === "prompt"),
+      false,
+    );
+    assertEquals(
+      test.fake.calls.some((call) =>
+        call.args[1] === "close" &&
+        (call.args[0] === "pane" || call.args[0] === "tab")
+      ),
+      false,
+    );
+  }
+});
+
 Deno.test("관리 pane 셸을 다시 시작하지 못하면 마지막 상태와 실패 기록을 반환한다", async () => {
   for (
     const scenario of [
       { name: "같은 오류", second: "shell", cancel: "none" },
       { name: "다른 오류", second: "other", cancel: "none" },
+      { name: "준비 차단", second: "blocked", cancel: "none" },
       { name: "대기 중 취소", second: "none", cancel: "sleep" },
       { name: "두 번째 시작 중 취소", second: "cancel", cancel: "start" },
     ] as const
@@ -1338,6 +1395,11 @@ Deno.test("관리 pane 셸을 다시 시작하지 못하면 마지막 상태와 
     if (scenario.second === "shell") responses.push(herdrFailure(shellError));
     if (scenario.second === "other") {
       responses.push(herdrFailure("retry refused"));
+    }
+    if (scenario.second === "blocked") {
+      responses.push(
+        herdrError("agent_not_ready", "interactive startup screen"),
+      );
     }
     if (scenario.second === "cancel") {
       responses.push({
@@ -1370,13 +1432,31 @@ Deno.test("관리 pane 셸을 다시 시작하지 못하면 마지막 상태와 
 
     assertEquals(
       result.code,
-      scenario.cancel === "none" ? 5 : 130,
+      scenario.second === "blocked" ? 4 : scenario.cancel === "none" ? 5 : 130,
       scenario.name,
     );
     assertStringIncludes(result.stdout, "result: failed");
     assertStringIncludes(result.stdout, `message: ${shellError}`);
     if (scenario.second === "other") {
       assertStringIncludes(result.stdout, "message: retry refused");
+    }
+    if (scenario.second === "blocked") {
+      const start = test.fake.calls.findLast((call) =>
+        call.args[1] === "start"
+      );
+      assertStringIncludes(result.stdout, "code: agent_blocked");
+      assertStringIncludes(result.stdout, "prompt를 제출하지 않았습니다");
+      assertStringIncludes(result.stdout, "pane_id: pane-delegate");
+      assertStringIncludes(result.stdout, `agent_name: ${start?.args[2]}`);
+      assertStringIncludes(result.stdout, "status: blocked");
+      assertEquals(
+        test.fake.calls.some((call) => call.args[1] === "prompt"),
+        false,
+      );
+      assertEquals(
+        test.fake.calls.some((call) => call.args[1] === "close"),
+        false,
+      );
     }
     if (scenario.cancel !== "none") {
       assertStringIncludes(result.stdout, "code: cancelled");
@@ -2187,6 +2267,33 @@ Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만
       }
     }
   }
+});
+
+Deno.test("agent start 외 Herdr 명령의 준비 실패는 일반 Herdr 오류로 반환한다", async () => {
+  await using dir = await tempDir();
+  const reason = "pane lookup agent not ready";
+  const test = setup(dir.path, "작업", [
+    herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
+    herdrError("agent_not_ready", reason),
+  ], { env: { HERDR_ENV: "1" } });
+
+  const result = await runDelegate([
+    "prompt",
+    "--agent",
+    "codex",
+    "--caller-id",
+    "caller",
+  ], test.deps);
+
+  assertEquals(result.code, 5);
+  assertStringIncludes(result.stdout, "code: herdr_failed");
+  assertStringIncludes(result.stdout, reason);
+  assertEquals(
+    test.fake.calls.some((call) =>
+      call.args[0] === "agent" && call.args[1] === "start"
+    ),
+    false,
+  );
 });
 
 Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해도 원래 오류를 보존하고 소유하지 않은 자원은 닫지 않는다", async () => {
@@ -3250,6 +3357,29 @@ Deno.test("직접 실행 자식 환경에서는 모든 HERDR 변수를 제거한
     Object.keys(test.fake.calls[0]?.env ?? {}).some((key) =>
       key.startsWith("HERDR_")
     ),
+    false,
+  );
+});
+
+Deno.test("시작 차단 도움말은 원래 prompt를 다시 제출하거나 보존 pane을 닫는 복구 절차를 안내한다", async () => {
+  await using dir = await tempDir();
+  const result = await runDelegate(
+    ["prompt", "--help"],
+    setup(dir.path, "").deps,
+  );
+
+  assertEquals(result.code, 0);
+  assertStringIncludes(result.stdout, "herdr agent get/read/send-keys");
+  assertStringIncludes(
+    result.stdout,
+    "native UUID가 있으면 원래 prompt를 그 SESSION_ID에 다시 제출",
+  );
+  assertStringIncludes(
+    result.stdout,
+    "UUID가 없으면 보존 pane을 명시적으로 닫고 새 prompt를 재시도",
+  );
+  assertEquals(
+    result.stdout.includes("native session UUID가 있으면 wait"),
     false,
   );
 });

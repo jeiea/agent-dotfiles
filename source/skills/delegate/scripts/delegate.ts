@@ -192,7 +192,7 @@ function parser() {
           message`prompt 완료까지 대기한 뒤 이번 turn의 result를 마크다운 본문으로 반환. 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
         footer: message`error.code 대응
 
-agent_blocked: 사용자 입력 대기. pane에서 응답한 뒤 wait
+agent_blocked: 사용자 입력 대기. 시작 차단은 prompt 미제출. blockers의 agent_name으로 herdr agent get/read/send-keys를 사용해 시작 화면 해소. native UUID가 있으면 원래 prompt를 그 SESSION_ID에 다시 제출하고, native UUID가 없으면 보존 pane을 명시적으로 닫고 새 prompt를 재시도
 
 live_option_conflict: 실행 중 session에 --permission·--model·--effort·--add-dir 지정
 
