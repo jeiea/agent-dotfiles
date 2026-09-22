@@ -198,7 +198,6 @@ function newTabAllocation(): FakeResponse[] {
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
   ];
 }
 
@@ -239,10 +238,7 @@ function completedUntilPostProcessing(
 }
 
 function successfulCleanup(): FakeResponse[] {
-  return [
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
-    herdr({}),
-  ];
+  return [herdr({})];
 }
 
 function liveAgent(
@@ -336,7 +332,6 @@ function completedHerdrResponses(
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }, {
       onStart: options.onAgentStart,
     }),
@@ -350,10 +345,7 @@ function completedHerdrResponses(
     herdr({}),
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }, {
-      onStart: options.onCleanupStart,
-    }),
-    herdr({}),
+    herdr({}, { onStart: options.onCleanupStart }),
   ];
 }
 
@@ -437,7 +429,6 @@ Deno.test("같은 중단 세션을 동시에 재개하면 먼저 시작한 요�
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }, {
       onStart: async () => {
         firstStart.resolve();
@@ -455,7 +446,6 @@ Deno.test("같은 중단 세션을 동시에 재개하면 먼저 시작한 요�
       onStart: () => secondChecked.promise,
     }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({}),
   ], {
     env: { HERDR_ENV: "1", HERDR_SOCKET_PATH: socketPath },
@@ -559,10 +549,10 @@ Deno.test("먼저 끝난 위임을 정리하는 동안 새 위임을 요청해�
     "caller",
   ], second.deps);
   await secondWaiting.promise;
-
   const secondCallsBeforeRelease = second.fake.calls.length;
   releaseCleanup.resolve();
   const results = await Promise.all([firstResult, secondResult]);
+
   assertEquals(secondCallsBeforeRelease, 0);
   assertEquals(results.map((result) => result.code), [0, 0]);
 });
@@ -580,7 +570,7 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
     herdr({ agent: currentAgent("working", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "renamed-by-user" }] }),
+    herdr({}),
     herdr({ agents: [liveAgent("done", 2)] }),
     herdr({ agent: liveAgent("done", 3) }, {
       onStart: () => {
@@ -596,9 +586,15 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
         Deno.renameSync(replacement, path);
       },
     }),
-    herdr({ agent: liveAgent("done", 3) }),
+    herdr({
+      agent: {
+        ...liveAgent("done", 3),
+        workspace_id: "ws-2",
+        tab_id: "tab-moved",
+        pane_id: "pane-moved",
+      },
+    }),
     herdr({}),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller-1" }] }),
     herdr({}),
     herdr({ agents: [] }),
   ];
@@ -669,10 +665,13 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
     true,
   );
   assertEquals(
-    start.fake.calls.some((call) =>
-      call.args.join(" ") === "pane close pane-delegate"
+    start.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
+      call.args
     ),
-    true,
+    [
+      ["pane", "close", "pane-delegate"],
+      ["pane", "close", "pane-moved"],
+    ],
   );
 
   const logs = await runDelegate(
@@ -687,8 +686,6 @@ Deno.test("사용자가 진행 중 작업의 상태 확인·wait·logs·close를
   const closed = await runDelegate([
     "close",
     codexId,
-    "--caller-id",
-    "caller-1",
   ], start.deps);
   assertEquals(closed.code, 3);
   assertStringIncludes(closed.stdout, "code: transport_unavailable");
@@ -740,7 +737,6 @@ Deno.test("prompt 파일을 정규화하고 명시한 effort로 Herdr 작업을 
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller-file" }] }),
     herdr({ agent: unidentifiedAgent("working", 1) }),
     herdr({ agent: unidentifiedAgent("working", 1) }, {
       onStart: () =>
@@ -763,7 +759,6 @@ Deno.test("prompt 파일을 정규화하고 명시한 effort로 Herdr 작업을 
     herdr({}),
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller-file" }] }),
     herdr({}),
   ], {
     env: { HERDR_ENV: "1" },
@@ -929,7 +924,6 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: unidentifiedAgent("working", 1) }),
     herdr({ agent: unidentifiedAgent("working", 1) }, {
       onStart: () =>
@@ -950,7 +944,6 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
     herdr({ agent: { agent_status: "done", state_change_seq: 3 } }),
     herdr({ agent_status: "done", state_change_seq: 3 }),
     herdr({}),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({}),
   ], {
     env: { HERDR_ENV: "1" },
@@ -1005,7 +998,6 @@ Deno.test("사용자가 종료된 Herdr session을 보고 ID 없이 확인 후 w
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({}),
     herdr({
       agent: currentAgent("working", 1, changedId, sessionCwd),
@@ -1110,7 +1102,6 @@ Deno.test("새 작업의 관리 pane 셸이 늦게 준비되어도 다시 시작
           tab: { tab_id: "tab-delegate" },
           root_pane: { pane_id: "pane-delegate" },
         }),
-        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
       ]
       : [
         herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
@@ -1127,7 +1118,6 @@ Deno.test("새 작업의 관리 pane 셸이 늦게 준비되어도 다시 시작
     const afterPrompt = [
       herdr({ agent: liveAgent("done", 2) }),
       herdr({ agent: liveAgent("done", 2) }),
-      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
       herdr({}),
     ];
     const test = setup(dir.path, "작업", [
@@ -1196,7 +1186,6 @@ Deno.test("중단된 작업의 관리 pane 셸이 늦게 준비되어도 다시 
         tab: { tab_id: "tab-delegate" },
         root_pane: { pane_id: "pane-delegate" },
       }),
-      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
       herdrFailure(shellError),
       retrySucceeds
         ? herdr({ agent: currentAgent("working", 1) })
@@ -1214,7 +1203,6 @@ Deno.test("중단된 작업의 관리 pane 셸이 늦게 준비되어도 다시 
         herdr({ agent_status: "done", state_change_seq: 2 }),
         herdr({ agent: { agent_status: "done", state_change_seq: 2 } }),
         herdr({ agent_status: "done", state_change_seq: 2 }),
-        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
         herdr({}),
       );
     }
@@ -1278,7 +1266,6 @@ Deno.test("기존 관리 pane이나 다른 이유로 시작이 거부되면 곧�
           tab: { tab_id: "tab-delegate" },
           root_pane: { pane_id: "pane-delegate" },
         }),
-        herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
       ];
     let sleeps = 0;
     const test = setup(dir.path, "작업", [
@@ -1386,7 +1373,6 @@ Deno.test("관리 pane 셸을 다시 시작하지 못하면 마지막 상태와 
         tab: { tab_id: "tab-delegate" },
         root_pane: { pane_id: "pane-delegate" },
       }),
-      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
       herdrFailure(shellError),
     ];
     if (scenario.second === "shell") responses.push(herdrFailure(shellError));
@@ -1583,7 +1569,6 @@ Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회
         tab: { tab_id: "tab-delegate" },
         root_pane: { pane_id: "pane-delegate" },
       }),
-      herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
       herdrFailure(shellError),
       herdr({
         agent: failure === "id-unavailable"
@@ -1686,7 +1671,6 @@ Deno.test("Herdr gate와 정숙 판정은 deadline을 공유하고 중단 시 �
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }),
     herdr({ agent: currentAgent("working", 1) }),
     herdr({ agent_status: "done", state_change_seq: 2 }),
@@ -1749,7 +1733,6 @@ Deno.test("Herdr gate와 정숙 판정은 deadline을 공유하고 중단 시 �
       tab: { tab_id: "tab-new" },
       root_pane: { pane_id: "pane-new" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-new", label: "caller-new" }] }),
     herdr({ agent: currentAgent("working", 1, createdId) }),
     herdr({ agent: currentAgent("working", 1, createdId) }, {
       onStart: () =>
@@ -2065,7 +2048,7 @@ Deno.test("호출자 중단과 제한 시간이 함께 성립해도 cancelled와
       `code: ${simultaneous ? "cancelled" : "timeout"}`,
     );
     assertStringIncludes(result.stdout, `session_id: ${codexId}`);
-    assertEquals(test.fake.calls.length, 7);
+    assertEquals(test.fake.calls.length, 6);
   }
 });
 
@@ -2074,8 +2057,6 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
     const scenario of [
       { stage: "rename-command", interruption: "cancelled" },
       { stage: "rename-pause", interruption: "timeout" },
-      { stage: "cleanup-lock", interruption: "timeout" },
-      { stage: "cleanup-query", interruption: "timeout" },
       { stage: "cleanup-close", interruption: "cancelled" },
     ] as const
   ) {
@@ -2083,18 +2064,6 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
     const path = codexPath(dir.path);
     const controller = new AbortController();
     const responses = completedUntilPostProcessing(path, `${prefix}작업`);
-    let cleanupLock: Deno.FsFile | undefined;
-    let cleanupLockAcquired = false;
-    if (scenario.stage === "cleanup-lock") {
-      responses.at(-1)!.onStart = async () => {
-        cleanupLock = await Deno.open(
-          `${join(dir.path, "herdr.sock")}.delegate-pane.lock`,
-          { create: true, read: true, write: true },
-        );
-        await cleanupLock.lock(true);
-        cleanupLockAcquired = true;
-      };
-    }
     if (scenario.stage.startsWith("rename")) {
       responses.push(
         scenario.stage === "rename-command"
@@ -2106,22 +2075,15 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
           : herdr({}),
         ...successfulCleanup(),
       );
-    } else if (scenario.stage !== "cleanup-lock") {
-      responses.push(
-        ...(scenario.stage === "cleanup-query"
-          ? [{ cmd: "herdr", waitForAbort: true } satisfies FakeResponse]
-          : [
-            herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
-            {
-              cmd: "herdr",
-              waitForAbort: true,
-              onStart: () => controller.abort(),
-            },
-          ]),
-      );
+    } else {
+      responses.push({
+        cmd: "herdr",
+        waitForAbort: true,
+        onStart: () => controller.abort(),
+      });
     }
     let sleepCalls = 0;
-    let logicalNow = 0;
+    const logicalNow = 0;
     const test = setup(dir.path, "작업", responses, {
       env: {
         HERDR_ENV: "1",
@@ -2131,10 +2093,6 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
       now: () => logicalNow,
       sleep: (_ms, signal) => {
         sleepCalls++;
-        if (scenario.stage === "cleanup-lock" && sleepCalls > 1) {
-          logicalNow = 1_000;
-          return Promise.resolve();
-        }
         const shouldBlock = scenario.stage === "rename-pause" && sleepCalls > 1;
         if (!shouldBlock) {
           return Promise.resolve();
@@ -2157,19 +2115,10 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
       "caller",
       ...(scenario.stage.startsWith("rename") ? ["--name", "표시"] : []),
       "--timeout",
-      scenario.stage === "cleanup-lock"
-        ? "1s"
-        : scenario.stage === "cleanup-query"
-        ? "500ms"
-        : scenario.stage === "rename-pause" ||
-            scenario.stage === "cleanup-close"
+      scenario.stage === "rename-pause" || scenario.stage === "cleanup-close"
         ? "100ms"
         : "20ms",
     ], test.deps);
-    if (cleanupLock != null) {
-      await cleanupLock.unlock();
-      cleanupLock.close();
-    }
 
     assertEquals(
       result.code,
@@ -2184,12 +2133,6 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
         ? test.fake.calls.some((call) =>
           call.args.some((arg) => arg.startsWith("/rename "))
         )
-        : scenario.stage === "cleanup-lock"
-        ? cleanupLockAcquired
-        : scenario.stage === "cleanup-query"
-        ? test.fake.calls.filter((call) =>
-          call.args.join(" ") === "tab list --workspace ws-1"
-        ).length === 3
         : test.fake.calls.some((call) =>
           call.args.join(" ") === "pane close pane-delegate"
         ),
@@ -2199,18 +2142,16 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
     assertEquals(
       test.fake.calls.length,
       {
-        "rename-command": 10,
-        "rename-pause": 10,
-        "cleanup-lock": 9,
-        "cleanup-query": 10,
-        "cleanup-close": 11,
+        "rename-command": 9,
+        "rename-pause": 9,
+        "cleanup-close": 9,
       }[scenario.stage],
       scenario.stage,
     );
   }
 });
 
-Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만든 pane과 탭만 정리하고 원래 오류를 반환한다", async () => {
+Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만든 pane만 정리하고 원래 오류를 반환한다", async () => {
   for (const allocation of ["tab", "pane"] as const) {
     for (const stage of ["start", "prompt"] as const) {
       await using dir = await tempDir();
@@ -2223,7 +2164,6 @@ Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만
           ? [herdrFailure(shellError), herdrFailure(original)]
           : [herdr({}), herdrFailure(original)]),
         herdr({}),
-        ...(allocation === "tab" ? [herdr({ panes: [] }), herdr({})] : []),
       ];
       const test = setup(dir.path, "작업", responses, {
         env: { HERDR_ENV: "1" },
@@ -2249,27 +2189,9 @@ Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만
         test.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
           call.args
         ),
-        allocation === "tab"
-          ? [["pane", "close", "pane-delegate"], [
-            "tab",
-            "close",
-            "tab-delegate",
-          ]]
-          : [["pane", "close", "pane-delegate"]],
+        [["pane", "close", "pane-delegate"]],
         `${allocation}-${stage}`,
       );
-      if (allocation === "tab") {
-        assertEquals(
-          test.fake.calls.slice(-3).map((call) => call.args),
-          [["pane", "close", "pane-delegate"], [
-            "pane",
-            "list",
-            "--workspace",
-            "ws-1",
-          ], ["tab", "close", "tab-delegate"]],
-          stage,
-        );
-      }
     }
   }
 });
@@ -2302,11 +2224,20 @@ Deno.test("agent start 외 Herdr 명령의 준비 실패는 일반 Herdr 오류�
 });
 
 Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해도 원래 오류를 보존하고 소유하지 않은 자원은 닫지 않는다", async () => {
-  for (const cleanupFailure of ["ordinary", "cancelled", "timeout"] as const) {
+  for (
+    const cleanupFailure of [
+      "ordinary",
+      "missing",
+      "cancelled",
+      "timeout",
+    ] as const
+  ) {
     await using dir = await tempDir();
     const controller = new AbortController();
     const cleanupResponse: FakeResponse = cleanupFailure === "ordinary"
       ? herdrFailure("close refused")
+      : cleanupFailure === "missing"
+      ? herdrError("pane_not_found", "pane pane-delegate not found")
       : {
         cmd: "herdr",
         waitForAbort: true,
@@ -2319,9 +2250,6 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
       herdr({}),
       herdrFailure("prompt refused"),
       cleanupResponse,
-      ...(cleanupFailure === "ordinary"
-        ? [herdr({ panes: [] }), herdr({})]
-        : []),
     ], {
       env: { HERDR_ENV: "1" },
       signal: controller.signal,
@@ -2344,15 +2272,8 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
     assertEquals(result.code, 5, cleanupFailure);
     assertStringIncludes(result.stdout, "message: prompt refused");
     assertEquals(
-      test.fake.calls.slice(6).map((call) => call.args),
-      cleanupFailure === "ordinary"
-        ? [["pane", "close", "pane-delegate"], [
-          "pane",
-          "list",
-          "--workspace",
-          "ws-1",
-        ], ["tab", "close", "tab-delegate"]]
-        : [["pane", "close", "pane-delegate"]],
+      test.fake.calls.slice(5).map((call) => call.args),
+      [["pane", "close", "pane-delegate"]],
       cleanupFailure,
     );
   }
@@ -2363,14 +2284,6 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
     herdr({}),
     herdrFailure("prompt refused"),
     herdr({}),
-    herdr({
-      panes: [{
-        pane_id: "pane-other",
-        tab_id: "tab-delegate",
-        agent: "other-agent",
-        agent_status: "working",
-      }],
-    }),
   ], { env: { HERDR_ENV: "1" } });
   const sharedResult = await runDelegate([
     "prompt",
@@ -2382,13 +2295,8 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
   assertEquals(sharedResult.code, 5);
   assertStringIncludes(sharedResult.stdout, "message: prompt refused");
   assertEquals(
-    shared.fake.calls.slice(6).map((call) => call.args),
-    [["pane", "close", "pane-delegate"], [
-      "pane",
-      "list",
-      "--workspace",
-      "ws-1",
-    ]],
+    shared.fake.calls.slice(5).map((call) => call.args),
+    [["pane", "close", "pane-delegate"]],
   );
 
   await using dir = await tempDir();
@@ -2428,7 +2336,6 @@ Deno.test("Claude Herdr 시작은 지정 ID로 보고 부재를 보완하고 불
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller-claude" }] }),
     herdr({ agent: unidentifiedClaude("working", 1) }),
     herdr({ agent: unidentifiedClaude("working", 1) }, {
       onStart: () => {
@@ -2466,7 +2373,6 @@ Deno.test("Claude Herdr 시작은 지정 ID로 보고 부재를 보완하고 불
     herdr({}),
     herdr({ agent: unidentifiedClaude("done", 2) }),
     herdr({ agent: unidentifiedClaude("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller-claude" }] }),
     herdr({}),
   ], { env: { HERDR_ENV: "1" } });
 
@@ -2795,7 +2701,7 @@ Deno.test("native 탐색은 잘못된 ID·중간 JSONL 손상·root 밖 symlink�
   assertEquals(env.CODEX_HOME, join(dir.path, "codex"));
 });
 
-Deno.test("blocked 후보는 정숙 시간을 기다리지 않고 agent_blocked로 끝난다", async () => {
+Deno.test("사용자 응답을 기다리는 작업은 즉시 차단을 알리고 응답 뒤에는 호출자 ID 없이 대기·정리를 마친다", async () => {
   await using dir = await tempDir();
   const path = codexPath(dir.path);
   const sent = `${prefix}승인 필요`;
@@ -2807,7 +2713,6 @@ Deno.test("blocked 후보는 정숙 시간을 기다리지 않고 agent_blocked�
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }),
     herdr({ agent: currentAgent("blocked", 2) }, {
       onStart: () => writeJsonl(path, [codexMeta(), ...codexTurn("t", sent)]),
@@ -2852,18 +2757,24 @@ Deno.test("blocked 후보는 정숙 시간을 기다리지 않고 agent_blocked�
     type: "event_msg",
     payload: { type: "task_complete", turn_id: "t" },
   }]);
-  const waited = await runDelegate([
-    "wait",
-    codexId,
-    "--caller-id",
-    "caller",
-  ], test.deps);
+  const waitStart = test.fake.calls.length;
+  const waited = await runDelegate(["wait", codexId], test.deps);
   assertEquals(waited.code, 0);
   assertStringIncludes(waited.stdout, "intervening_prompts:\n  - 승인 필요");
   assertStringIncludes(waited.stdout, "응답 후 완료");
+  assertEquals(
+    test.fake.calls.slice(waitStart).map((call) => call.args.slice(0, 2)),
+    [["agent", "list"], ["agent", "wait"], ["agent", "get"], ["pane", "close"]],
+  );
+  assertEquals(test.fake.calls.at(-1)?.args, [
+    "pane",
+    "close",
+    "pane-delegate",
+  ]);
+  assertEquals(waited.stdout.includes("warnings:"), false);
 });
 
-Deno.test("이름이 바뀐 탭은 주 결과를 성공으로 유지하고 어떤 pane도 자동 정리하지 않는다", async () => {
+Deno.test("유저가 pane을 다른 탭으로 옮겨도 턴 종료 시 그 pane을 닫는다", async () => {
   await using dir = await tempDir();
   const path = codexPath(dir.path);
   const sent = `${prefix}작업`;
@@ -2875,7 +2786,6 @@ Deno.test("이름이 바뀐 탭은 주 결과를 성공으로 유지하고 어�
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }),
     herdr({ agent: currentAgent("working", 1) }, {
       onStart: () =>
@@ -2883,8 +2793,15 @@ Deno.test("이름이 바뀐 탭은 주 결과를 성공으로 유지하고 어�
     }),
     herdr({}),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "renamed-by-user" }] }),
+    herdr({
+      agent: {
+        ...liveAgent("done", 2),
+        workspace_id: "ws-2",
+        tab_id: "tab-moved",
+        pane_id: "pane-moved",
+      },
+    }),
+    herdr({}),
   ], {
     env: { HERDR_ENV: "1" },
     now: () => now,
@@ -2902,8 +2819,13 @@ Deno.test("이름이 바뀐 탭은 주 결과를 성공으로 유지하고 어�
   ], test.deps);
   assertEquals(result.code, 0);
   assertStringIncludes(result.stdout, "\n\n완료\n");
-  assertStringIncludes(result.stdout, "code: unmanaged_tab");
-  assertEquals(test.fake.calls.some((call) => call.args[1] === "close"), false);
+  assertEquals(result.stdout.includes("warnings:"), false);
+  assertEquals(
+    test.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
+      call.args
+    ),
+    [["pane", "close", "pane-moved"]],
+  );
 });
 
 Deno.test("작업 중 사람이 프롬프트를 추가하면 접두사 없는 중간 프롬프트와 최신 결과를 반환한다", async () => {
@@ -2919,7 +2841,6 @@ Deno.test("작업 중 사람이 프롬프트를 추가하면 접두사 없는 �
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }),
     herdr({ agent: currentAgent("working", 1) }, {
       onStart: () =>
@@ -2933,7 +2854,6 @@ Deno.test("작업 중 사람이 프롬프트를 추가하면 접두사 없는 �
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({}),
   ], {
     env: { HERDR_ENV: "1" },
@@ -2998,55 +2918,34 @@ Deno.test("Herdr live 조회가 모호하면 두 번째 native writer를 시작�
   assertEquals(test.fake.calls[0]?.args, ["agent", "list"]);
 });
 
-Deno.test("명시적 close는 target만 취소·정리하고 남은 active pane을 구조화된 blocker로 반환한다", async () => {
+Deno.test("명시적 close는 실행 중인 세션을 취소한 뒤 다른 pane을 건드리지 않고 해당 pane만 닫는다", async () => {
   await using dir = await tempDir();
   writeJsonl(codexPath(dir.path), [codexMeta(), ...codexTurn("old", "old")]);
+  const live = liveAgent("working", 1);
   const test = setup(dir.path, "", [
-    herdr({ agents: [liveAgent("working", 1)] }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
+    herdr({ agents: [live] }),
     herdr({}),
-    herdr({ agent: liveAgent("idle", 2) }),
     herdr({
-      panes: [{
-        pane_id: "pane-delegate",
-        tab_id: "tab-delegate",
-        agent: liveAgent("idle", 2).name,
-        agent_status: "idle",
-      }, {
-        pane_id: "pane-other",
-        tab_id: "tab-delegate",
-        agent: "other-agent",
-        agent_status: "working",
-      }, {
-        pane_id: "pane-terminal",
-        tab_id: "tab-delegate",
-        agent: null,
-      }],
+      agent: {
+        ...liveAgent("idle", 2),
+        workspace_id: "ws-2",
+        tab_id: "tab-moved",
+        pane_id: "pane-moved",
+      },
     }),
     herdr({}),
   ], { env: { HERDR_ENV: "1" } });
-  const result = await runDelegate([
-    "close",
-    codexId,
-    "--caller-id",
-    "caller",
-  ], test.deps);
-  assertEquals(result.code, 4);
-  assertStringIncludes(result.stdout, "code: tab_close_blocked");
-  assertStringIncludes(result.stdout, "pane_id: pane-other");
-  assertStringIncludes(result.stdout, "pane_id: pane-terminal");
-  assertEquals(
-    test.fake.calls.some((call) =>
-      call.args.join(" ") === "pane close pane-delegate"
-    ),
-    true,
-  );
-  assertEquals(
-    test.fake.calls.some((call) =>
-      call.args.join(" ") === "pane close pane-other"
-    ),
-    false,
-  );
+
+  const result = await runDelegate(["close", codexId], test.deps);
+
+  assertEquals(result.code, 0);
+  assertStringIncludes(result.stdout, "activity: not_live");
+  assertEquals(test.fake.calls.map((call) => call.args), [
+    ["agent", "list"],
+    ["agent", "send-keys", live.name, "ctrl+c"],
+    ["agent", "get", live.name],
+    ["pane", "close", "pane-moved"],
+  ]);
 });
 
 Deno.test("다른 작업의 정리가 끝나지 않으면 닫기 요청은 60초 뒤 제한 시간 초과를 알린다", async () => {
@@ -3065,7 +2964,6 @@ Deno.test("다른 작업의 정리가 끝나지 않으면 닫기 요청은 60초
   let now = 0;
   const test = setup(dir.path, "", [
     herdr({ agents: [liveAgent("done", 1)] }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
   ], {
     env: { HERDR_ENV: "1", HERDR_SOCKET_PATH: socketPath },
     now: () => now,
@@ -3076,12 +2974,7 @@ Deno.test("다른 작업의 정리가 끝나지 않으면 닫기 요청은 60초
   });
 
   try {
-    const result = await runDelegate([
-      "close",
-      codexId,
-      "--caller-id",
-      "caller",
-    ], test.deps);
+    const result = await runDelegate(["close", codexId], test.deps);
     assertEquals(result.code, 6);
     assertStringIncludes(result.stdout, "code: timeout");
     assertEquals(now, 60_000);
@@ -3123,7 +3016,6 @@ Deno.test("같은 관리 탭에서 다른 작업이 실행 중이어도 완료�
     herdr({}),
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({}),
   ], {
     env: { HERDR_ENV: "1" },
@@ -3162,7 +3054,6 @@ Deno.test("완료된 작업의 마지막 관리 pane만 닫고 결과를 반환�
       tab: { tab_id: "tab-delegate" },
       root_pane: { pane_id: "pane-delegate" },
     }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({ agent: currentAgent("working", 1) }),
     herdr({ agent: currentAgent("working", 1) }, {
       onStart: () =>
@@ -3174,7 +3065,6 @@ Deno.test("완료된 작업의 마지막 관리 pane만 닫고 결과를 반환�
     herdr({}),
     herdr({ agent: liveAgent("done", 2) }),
     herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
     herdr({}),
   ], {
     env: { HERDR_ENV: "1" },
@@ -3202,61 +3092,180 @@ Deno.test("완료된 작업의 마지막 관리 pane만 닫고 결과를 반환�
   );
 });
 
-Deno.test("완료된 작업의 pane 정리가 실패하면 cleanup_failed 경고와 원인을 남긴다", async () => {
-  await using dir = await tempDir();
-  const path = codexPath(dir.path);
-  let now = 0;
-  const test = setup(dir.path, "작업", [
-    herdr({ pane: { workspace_id: "ws-1", tab_id: "current" } }),
-    herdr({ tabs: [] }),
-    herdr({
-      tab: { tab_id: "tab-delegate" },
-      root_pane: { pane_id: "pane-delegate" },
-    }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
-    herdr({ agent: currentAgent("working", 1) }),
-    herdr({ agent: currentAgent("working", 1) }, {
-      onStart: () =>
+Deno.test("패널 부재 메시지가 정확히 일치할 때만 세션을 한 번 재조회하고 두 번째 닫기 실패를 알린다", async (t) => {
+  for (const command of ["prompt", "wait", "close"] as const) {
+    for (
+      const scenario of [
+        "gone",
+        "moved",
+        "refused",
+        "different-message",
+        "retry-missing",
+        "retry-refused",
+        "list-failed",
+        "identity-changed",
+        "cancelled",
+        "timeout",
+      ] as const
+    ) {
+      await t.step(`${command}: ${scenario}`, async () => {
+        await using dir = await tempDir();
+        const path = codexPath(dir.path);
         writeJsonl(path, [
           codexMeta(),
           ...codexTurn("t", `${prefix}작업`, "완료"),
-        ]),
-    }),
-    herdr({}),
-    herdr({ agent: liveAgent("done", 2) }),
-    herdr({ agent: liveAgent("done", 2) }),
-    herdr({ tabs: [{ tab_id: "tab-delegate", label: "caller" }] }),
-    herdr({}, {
-      code: 1,
-      stderr: JSON.stringify({
-        error: { code: "herdr_failed", message: "pane close refused" },
-      }),
-    }),
-  ], {
-    env: { HERDR_ENV: "1" },
-    now: () => now,
-    sleep: (ms) => {
-      now += ms;
-      return Promise.resolve();
-    },
-  });
-  const result = await runDelegate([
-    "prompt",
-    "--agent",
-    "codex",
-    "--caller-id",
-    "caller",
-  ], test.deps);
-  assertEquals(result.code, 0);
-  assertStringIncludes(result.stdout, "\n\n완료\n");
-  assertStringIncludes(result.stdout, "code: cleanup_failed");
-  assertStringIncludes(result.stdout, "pane close refused");
-  assertEquals(
-    test.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
-      call.args
-    ),
-    [["pane", "close", "pane-delegate"]],
-  );
+        ]);
+        let now = 0;
+        const controller = new AbortController();
+        const moved = {
+          ...liveAgent("done", 2),
+          name: "user-renamed-agent",
+          workspace_id: "ws-2",
+          tab_id: "tab-moved",
+          pane_id: "pane-moved",
+        };
+        const firstMessage = scenario === "refused"
+          ? "pane close refused"
+          : scenario === "different-message"
+          ? "pane pane-delegate not found elsewhere"
+          : "pane pane-delegate not found";
+        const retry = ["moved", "retry-missing", "retry-refused"].includes(
+          scenario,
+        );
+        const requery = !["refused", "different-message"].includes(scenario);
+        const failure = scenario === "retry-missing"
+          ? "pane pane-moved not found"
+          : scenario === "retry-refused"
+          ? "retry close refused"
+          : scenario === "list-failed"
+          ? "list refused"
+          : firstMessage;
+        const responses = [
+          ...(command === "prompt"
+            ? completedUntilPostProcessing(path, `${prefix}작업`)
+            : command === "wait"
+            ? [
+              herdr({ agents: [liveAgent("done", 2)] }),
+              herdr({ agent: liveAgent("done", 2) }),
+              herdr({ agent: liveAgent("done", 2) }),
+            ]
+            : [herdr({ agents: [liveAgent("done", 2)] })]),
+          herdrError(
+            scenario === "refused" ? "herdr_failed" : "pane_not_found",
+            firstMessage,
+          ),
+          ...(requery
+            ? [
+              scenario === "list-failed" ? herdrFailure(failure) : herdr({
+                agents: scenario === "gone" ? [] : [{
+                  ...moved,
+                  ...(scenario === "identity-changed"
+                    ? {
+                      name: liveAgent("done", 2).name,
+                      agent_session: { kind: "id", value: claudeId },
+                    }
+                    : {}),
+                }],
+              }, {
+                onStart: () => {
+                  if (scenario === "cancelled") controller.abort();
+                  if (scenario === "timeout") now += 60_000;
+                },
+              }),
+            ]
+            : []),
+          ...(retry
+            ? [
+              scenario === "moved" ? herdr({}) : herdrError(
+                scenario === "retry-missing"
+                  ? "pane_not_found"
+                  : "herdr_failed",
+                failure,
+              ),
+            ]
+            : []),
+        ];
+        const test = setup(dir.path, "작업", responses, {
+          env: { HERDR_ENV: "1", CODEX_THREAD_ID: "caller" },
+          signal: controller.signal,
+          now: () => now,
+          sleep: (ms) => {
+            now += ms;
+            return Promise.resolve();
+          },
+        });
+        const result = await runDelegate(
+          command === "prompt"
+            ? [
+              "prompt",
+              "--agent",
+              "codex",
+              "--caller-id",
+              "caller",
+              "--timeout",
+              "60s",
+            ]
+            : command === "wait"
+            ? ["wait", codexId, "--timeout", "60s"]
+            : ["close", codexId],
+          test.deps,
+        );
+        const success = scenario === "gone" || scenario === "moved";
+        assertEquals(
+          result.code,
+          scenario === "cancelled"
+            ? 130
+            : scenario === "timeout"
+            ? 6
+            : command === "close" && !success
+            ? 5
+            : 0,
+        );
+        if (success) {
+          assertStringIncludes(
+            result.stdout,
+            `activity: ${command === "close" ? "not_live" : "quiescent"}`,
+          );
+          assertEquals(result.stdout.includes("warnings:"), false);
+        } else if (scenario === "cancelled" || scenario === "timeout") {
+          assertStringIncludes(result.stdout, `code: ${scenario}`);
+        } else if (scenario === "identity-changed") {
+          assertStringIncludes(
+            result.stdout,
+            `code: ${
+              command === "close" ? "session_id_changed" : "cleanup_failed"
+            }`,
+          );
+        } else {
+          assertStringIncludes(
+            result.stdout,
+            `code: ${
+              command === "close" && scenario === "list-failed"
+                ? "live_session_ambiguous"
+                : "cleanup_failed"
+            }`,
+          );
+          assertStringIncludes(result.stdout, failure);
+        }
+        if (
+          command !== "close" && !["cancelled", "timeout"].includes(scenario)
+        ) {
+          assertStringIncludes(result.stdout, "\n\n완료\n");
+        }
+        const firstClose = test.fake.calls.findIndex((call) =>
+          call.args[0] === "pane" && call.args[1] === "close"
+        );
+        assertEquals(
+          test.fake.calls.slice(firstClose).map((call) => call.args),
+          [
+            ["pane", "close", "pane-delegate"],
+            ...(requery ? [["agent", "list"]] : []),
+            ...(retry ? [["pane", "close", "pane-moved"]] : []),
+          ],
+        );
+      });
+    }
+  }
 });
 
 Deno.test("live session의 시작 옵션은 writer를 건드리기 전에 충돌로 거부한다", async () => {
@@ -3384,6 +3393,7 @@ Deno.test("삭제된 명령과 옵션·위치 prompt는 실행 전에 거부된�
       ["prompt", "위치 본문", "추가 본문"],
       ["prompt", "--keep"],
       ["prompt", "--confirm-escalation"],
+      ["close", codexId, "--caller-id", "caller"],
     ]
   ) {
     const result = await runDelegate(args, base.deps);
@@ -3429,8 +3439,6 @@ Deno.test("공개 오류는 명세의 종료 코드로만 매핑된다", () => {
     agent_failed: 5,
     herdr_failed: 5,
     agent_blocked: 4,
-    unmanaged_tab: 4,
-    tab_close_blocked: 4,
     cleanup_failed: 5,
     timeout: 6,
     cancelled: 130,

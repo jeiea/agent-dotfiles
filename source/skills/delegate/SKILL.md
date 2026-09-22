@@ -36,7 +36,7 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 - 옵션·출력·오류 대응은 하위 명령 `--help` 확인
   - 터미널 멀티플렉서 herdr의 예외 정보는 `herdr --skill` 확인
 - 식별자는 코덱스·클로드 네이티브 세션 ID
-- Herdr의 `prompt`·`wait` 성공 시 터미널 분할 창 자동 정리
+- Herdr의 `prompt`·`wait` 성공 시 옮긴 터미널 분할 창도 자동 정리
   - 같은 ID로 대화 재개 가능
   - `close`는 Herdr 창의 중단·자동 정리 실패 시 사용
 

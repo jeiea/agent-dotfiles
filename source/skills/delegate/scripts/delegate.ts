@@ -100,7 +100,6 @@ type ParsedCommand = PromptOptions | {
 } | {
   kind: "close";
   target: string;
-  callerId?: string;
 };
 
 class CliExit extends Error {
@@ -212,8 +211,6 @@ timeout: --timeout 초과. 확인된 session ID가 있으면 status 확인. 전�
 
 warnings[].code 대응 (마크다운 본문은 유효)
 
-unmanaged_tab: 탭 이름이 caller ID와 달라 정리 생략. 이름 복원 뒤 close
-
 cleanup_failed: 정리만 실패. 필요 시 close`,
       },
     ),
@@ -260,7 +257,7 @@ last_activity_at과 last_activity는 서로 다른 기록을 가리킬 수 있�
           1_200_000,
         ),
         callerId: optional(option("--caller-id", string({ metavar: "ID" }), {
-          description: message`prompt와 동일. 자동 정리 판별에 사용`,
+          description: message`Codex --name 지정 시 표시 이름 접두사로 사용`,
         })),
         name: optional(option("--name", string({ metavar: "NAME" }), {
           description:
@@ -300,12 +297,9 @@ last_activity_at과 last_activity는 서로 다른 기록을 가리킬 수 있�
       "close",
       object({
         target: argument(string({ metavar: "SESSION_ID" }), {}),
-        callerId: optional(option("--caller-id", string({ metavar: "ID" }), {
-          description: message`prompt와 동일. 탭 이름과 다르면 unmanaged_tab`,
-        })),
       }),
       {
-        brief: message`실행 중이면 취소한 뒤 pane과 빈 탭 정리`,
+        brief: message`실행 중이면 취소한 뒤 pane 정리`,
         description:
           message`연결된 Herdr 창만 제어. 창이 없으면 transport_unavailable 오류. 직접 실행은 prompt를 실행한 호스트 세션에서 중단. Herdr의 prompt·wait가 자동 정리하지 못했거나 작업을 중단할 때 사용. pane 잠금 대기는 최대 60초이며 초과 시 timeout`,
       },
@@ -397,7 +391,7 @@ export async function runDelegate(
       if (parsed.kind === "wait") {
         return success(await waitHerdr(snapshot, parsed, herdrDeps));
       }
-      return success(await closeHerdr(snapshot, parsed.callerId, herdrDeps));
+      return success(await closeHerdr(snapshot, herdrDeps));
     }
 
     const prompt = await readPrompt(parsed.promptFile, deps);

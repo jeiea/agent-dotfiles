@@ -35,8 +35,6 @@ export type PublicErrorCode =
   | "agent_failed"
   | "herdr_failed"
   | "agent_blocked"
-  | "unmanaged_tab"
-  | "tab_close_blocked"
   | "cleanup_failed"
   | "timeout"
   | "cancelled";
@@ -68,7 +66,7 @@ export type DelegateDocument = {
     blockers?: Blocker[];
   };
   warnings?: Array<{
-    code: "unmanaged_tab" | "cleanup_failed";
+    code: "cleanup_failed";
     message: string;
     blockers?: Blocker[];
   }>;
@@ -117,10 +115,7 @@ export function exitCode(code: PublicErrorCode): number {
     code === "transport_unavailable" ||
     code === "caller_session_unavailable" || code === "session_not_found"
   ) return 3;
-  if (
-    code === "agent_blocked" || code === "unmanaged_tab" ||
-    code === "tab_close_blocked"
-  ) return 4;
+  if (code === "agent_blocked") return 4;
   if (code === "timeout") return 6;
   if (code === "cancelled") return 130;
   return 5;

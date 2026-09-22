@@ -1,7 +1,6 @@
 import { isAbsolute } from "jsr:@std/path@^1";
 import { closeDirect, statusDirect, waitDirect } from "./direct.ts";
 import type {
-  Blocker,
   DelegateDocument,
   PublicActivity,
   RetryRecord,
@@ -71,10 +70,7 @@ type ManagedPane = LiveAgent & {
   callerId: string;
 };
 
-type PaneOwnership =
-  | { kind: "none" }
-  | { kind: "pane"; paneId: string }
-  | { kind: "tab"; workspaceId: string; paneId: string; tabId: string };
+type OwnedPaneId = string | undefined;
 
 type CleanupWarning = NonNullable<DelegateDocument["warnings"]>[number];
 
@@ -146,7 +142,7 @@ export async function promptHerdr(
               expected?.sessionId,
             );
           }
-          let ownership: PaneOwnership = { kind: "none" };
+          let ownership: OwnedPaneId;
           let ownedCwd = expected?.cwd ?? request.cwd;
           let startRetry: RetryRecord | undefined;
           try {
@@ -285,9 +281,8 @@ export async function promptHerdr(
       );
     }
     const warnings = await cleanupAutomatically(
-      live,
-      callerId,
-      settled.snapshot.cwd,
+      settled.live,
+      settled.snapshot,
       deadline,
       executionDeps,
     );
@@ -344,17 +339,16 @@ export async function waitHerdr(
   const boundaryCursor = snapshot.cursor;
   const boundary = latestHumanBoundary(snapshot);
   const settled = await waitForQuiescence(snapshot, live, deadline, deps);
-  const callerId = await withSessionError(
-    resolveCallerId(options.callerId, deps, snapshot.cwd),
-    snapshot.sessionId,
-  );
   if (snapshot.agent === "codex" && options.name != null) {
+    const callerId = await withSessionError(
+      resolveCallerId(options.callerId, deps, snapshot.cwd),
+      snapshot.sessionId,
+    );
     await renameCodex(live, callerId, options.name, snapshot.cwd, deps);
   }
   const warnings = await cleanupAutomatically(
-    live,
-    callerId,
-    settled.snapshot.cwd,
+    settled.live,
+    settled.snapshot,
     deadline,
     deps,
   );
@@ -376,28 +370,14 @@ export async function waitHerdr(
 
 export async function closeHerdr(
   snapshot: SharedSession,
-  callerId: string | undefined,
   deps: HerdrDeps,
 ): Promise<DelegateDocument> {
   const live = await findLiveAgent(snapshot, deps);
   if (live == null) return closeDirect();
-  if (
-    live.tabId == null || live.paneId == null ||
-    live.workspaceId == null
-  ) {
+  if (live.paneId == null) {
     return document(snapshot, "not_live");
   }
-  const owner = await withSessionError(
-    resolveCallerId(callerId, deps, snapshot.cwd),
-    snapshot.sessionId,
-  );
-  const label = await tabLabel(live, snapshot.cwd, deps);
-  if (owner == null || label !== owner) {
-    throw new DelegateError(
-      "unmanaged_tab",
-      "탭 이름이 현재 caller ID와 다릅니다. 이름을 복구한 뒤 다시 close하세요",
-    );
-  }
+  let paneId = live.paneId;
   if (["working", "blocked", "unknown"].includes(live.status)) {
     await json(snapshot.cwd, deps, [
       "agent",
@@ -406,7 +386,8 @@ export async function closeHerdr(
       "ctrl+c",
     ]);
     try {
-      await getAgent(live, snapshot.cwd, deps, snapshot.sessionId);
+      paneId = (await getAgent(live, snapshot.cwd, deps, snapshot.sessionId))
+        .paneId ?? paneId;
     } catch (error) {
       if (
         error instanceof DelegateError &&
@@ -415,26 +396,14 @@ export async function closeHerdr(
       // 취소 직후 agent가 사라지는 것은 정상적인 정리 경로다.
     }
   }
-  const { workspaceId, tabId, paneId } = live;
+  const deadline = deps.now() + paneLockWaitMs;
   await withPaneLock(
     {
-      deadline: deps.now() + paneLockWaitMs,
+      deadline,
       deps,
       sessionId: snapshot.sessionId,
     },
-    async () => {
-      const panes = await listPanes(workspaceId, snapshot.cwd, deps);
-      const blockers = blockersInTab(panes, tabId, paneId);
-      await closePane(paneId, snapshot.cwd, deps);
-      if (blockers.length > 0) {
-        throw new DelegateError(
-          "tab_close_blocked",
-          "다른 active pane이 남아 탭을 닫지 않았습니다",
-          blockers,
-        );
-      }
-      await closeTab(tabId, snapshot.cwd, deps);
-    },
+    () => closeSessionPane(paneId, snapshot, { deadline, deps }),
   );
   return document(snapshot, "not_live");
 }
@@ -680,7 +649,7 @@ async function startAgent(
   assignedSessionId: string | undefined,
   deadline: number,
   deps: HerdrDeps,
-  allocated: (ownership: PaneOwnership, cwd: string) => void,
+  allocated: (ownership: OwnedPaneId, cwd: string) => void,
 ): Promise<{
   live: ManagedPane;
   retry?: RetryRecord;
@@ -740,7 +709,7 @@ async function startAgent(
     } catch (error) {
       const normalized = normalizeError(error);
       if (
-        ownership.kind === "none" || normalized.code !== "herdr_failed" ||
+        ownership == null || normalized.code !== "herdr_failed" ||
         normalized.message !==
           `agent target pane ${pane.paneId} is not an available shell`
       ) throw normalized;
@@ -1076,10 +1045,10 @@ async function allocatePane(
   callerId: string,
   sessionId: string | undefined,
   deps: HerdrDeps,
-  allocated: (ownership: PaneOwnership) => void,
+  allocated: (ownership: OwnedPaneId) => void,
 ): Promise<
   Pick<ManagedPane, "workspaceId" | "tabId" | "paneId" | "callerId"> & {
-    ownership: PaneOwnership;
+    ownership: OwnedPaneId;
   }
 > {
   let currentResult: HerdrResult;
@@ -1137,22 +1106,8 @@ async function allocatePane(
         "Herdr 탭 생성 응답이 불완전합니다",
       );
     }
-    const ownership: PaneOwnership = {
-      kind: "tab",
-      workspaceId,
-      paneId,
-      tabId,
-    };
+    const ownership: OwnedPaneId = paneId;
     allocated(ownership);
-    const verified = (await listTabs(workspaceId, cwd, deps)).filter((tab) =>
-      tab.label === callerId && tab.tabId === tabId
-    );
-    if (verified.length !== 1) {
-      throw new DelegateError(
-        "live_session_ambiguous",
-        "생성한 관리 탭 소유권을 확인하지 못했습니다",
-      );
-    }
     return {
       workspaceId,
       tabId,
@@ -1167,7 +1122,7 @@ async function allocatePane(
   );
   const available = panes.find((pane) => pane.agentName == null);
   if (available != null) {
-    const ownership: PaneOwnership = { kind: "none" };
+    const ownership: OwnedPaneId = undefined;
     allocated(ownership);
     return {
       workspaceId,
@@ -1196,7 +1151,7 @@ async function allocatePane(
   if (paneId == null) {
     throw new DelegateError("herdr_failed", "pane 분할 응답이 불완전합니다");
   }
-  const ownership: PaneOwnership = { kind: "pane", paneId };
+  const ownership: OwnedPaneId = paneId;
   allocated(ownership);
   return {
     workspaceId,
@@ -1208,59 +1163,22 @@ async function allocatePane(
 }
 
 async function cleanupOwnedPane(
-  ownership: PaneOwnership,
+  ownership: OwnedPaneId,
   cwd: string,
   deadline: number,
   deps: HerdrDeps,
 ): Promise<void> {
-  if (ownership.kind === "none") return;
+  if (ownership == null) return;
   ensureTime(deadline, deps);
-  let paneCloseError: DelegateError | undefined;
-  try {
-    await closePane(ownership.paneId, cwd, deps);
-  } catch (error) {
-    const normalized = normalizeError(error);
-    if (isLifecycleError(normalized)) throw normalized;
-    paneCloseError = normalized;
-  }
-  if (ownership.kind === "pane") {
-    if (paneCloseError != null) throw paneCloseError;
-    return;
-  }
-
-  ensureTime(deadline, deps);
-  let panes: Awaited<ReturnType<typeof listPanes>>;
-  try {
-    panes = await listPanes(ownership.workspaceId, cwd, deps);
-  } catch (error) {
-    const normalized = normalizeError(error);
-    if (isLifecycleError(normalized)) throw normalized;
-    throw paneCloseError ?? normalized;
-  }
-  if (panes.some((pane) => pane.tabId === ownership.tabId)) {
-    if (paneCloseError != null) throw paneCloseError;
-    return;
-  }
-
-  ensureTime(deadline, deps);
-  try {
-    await closeTab(ownership.tabId, cwd, deps);
-  } catch (error) {
-    const normalized = normalizeError(error);
-    if (isLifecycleError(normalized)) throw normalized;
-    if (normalized.message !== `tab ${ownership.tabId} not found`) {
-      throw paneCloseError ?? normalized;
-    }
-  }
-  if (paneCloseError != null) throw paneCloseError;
+  await closePane(ownership, cwd, deps);
 }
 
 async function recoverOwnedPane(
-  ownership: PaneOwnership,
+  ownership: OwnedPaneId,
   cwd: string,
   deps: HerdrDeps,
 ): Promise<void> {
-  if (ownership.kind === "none") return;
+  if (ownership == null) return;
   const recoveryDeps: HerdrDeps = {
     exec: deps.exec,
     env: deps.env,
@@ -1278,12 +1196,11 @@ async function recoverOwnedPane(
 
 async function cleanupAutomatically(
   live: LiveAgent,
-  callerId: string | undefined,
-  cwd: string,
+  snapshot: SharedSession,
   deadline: number,
   deps: HerdrDeps,
 ): Promise<CleanupWarning[] | undefined> {
-  if (live.workspaceId == null || live.tabId == null || live.paneId == null) {
+  if (live.paneId == null) {
     return [{
       code: "cleanup_failed",
       message: "live pane 위치를 확인하지 못했습니다",
@@ -1294,14 +1211,7 @@ async function cleanupAutomatically(
     return await withPaneLock(
       { deadline, deps, sessionId: live.sessionId },
       async () => {
-        const label = await tabLabel(live, cwd, deps);
-        if (callerId == null || label !== callerId) {
-          return [{
-            code: "unmanaged_tab",
-            message: "탭 이름이 caller ID와 달라 자동 정리하지 않았습니다",
-          }];
-        }
-        await closePane(paneId, cwd, deps);
+        await closeSessionPane(paneId, snapshot, { deadline, deps });
         return undefined;
       },
     );
@@ -1365,17 +1275,6 @@ async function resolveCallerId(
   }
 }
 
-async function tabLabel(
-  live: LiveAgent,
-  cwd: string,
-  deps: HerdrDeps,
-): Promise<string | undefined> {
-  if (live.workspaceId == null || live.tabId == null) return undefined;
-  return (await listTabs(live.workspaceId, cwd, deps)).find((tab) =>
-    tab.tabId === live.tabId
-  )?.label;
-}
-
 async function listTabs(workspaceId: string, cwd: string, deps: HerdrDeps) {
   return arrayObjects(
     (await json(cwd, deps, [
@@ -1412,40 +1311,37 @@ async function listPanes(workspaceId: string, cwd: string, deps: HerdrDeps) {
   });
 }
 
-function blockersInTab(
-  panes: Awaited<ReturnType<typeof listPanes>>,
-  tabId: string,
-  targetPaneId: string,
-): Blocker[] {
-  return panes.filter((pane) =>
-    pane.tabId === tabId && pane.paneId !== targetPaneId &&
-    (pane.agentName == null ||
-      ["working", "blocked", "unknown"].includes(pane.status))
-  ).map((pane) => ({
-    pane_id: pane.paneId,
-    agent_name: pane.agentName,
-    status: ["working", "blocked"].includes(pane.status)
-      ? pane.status as "working" | "blocked"
-      : "unknown",
-  }));
+async function closeSessionPane(
+  paneId: string,
+  snapshot: SharedSession,
+  options: { deadline: number; deps: HerdrDeps },
+) {
+  const { deadline, deps } = options;
+  try {
+    await closePane(paneId, snapshot.cwd, deps);
+    return;
+  } catch (error) {
+    if (
+      !(error instanceof DelegateError) || error.code !== "cleanup_failed" ||
+      error.message !== `pane ${paneId} not found`
+    ) throw error;
+  }
+  ensureTime(deadline, deps, snapshot.sessionId);
+  const live = await findLiveAgent(snapshot, deps);
+  ensureTime(deadline, deps, snapshot.sessionId);
+  if (live == null) return;
+  if (live.paneId == null) {
+    throw new DelegateError(
+      "cleanup_failed",
+      "live pane 위치를 확인하지 못했습니다",
+    );
+  }
+  await closePane(live.paneId, snapshot.cwd, deps);
 }
 
 async function closePane(paneId: string, cwd: string, deps: HerdrDeps) {
   try {
     await json(cwd, deps, ["pane", "close", paneId]);
-  } catch (error) {
-    const normalized = normalizeError(error);
-    if (isLifecycleError(normalized)) throw normalized;
-    throw new DelegateError(
-      "cleanup_failed",
-      normalized.message,
-    );
-  }
-}
-
-async function closeTab(tabId: string, cwd: string, deps: HerdrDeps) {
-  try {
-    await json(cwd, deps, ["tab", "close", tabId]);
   } catch (error) {
     const normalized = normalizeError(error);
     if (isLifecycleError(normalized)) throw normalized;
@@ -1579,14 +1475,10 @@ function mergeLive(base: LiveAgent, update: LiveAgent): LiveAgent {
 }
 
 function mergeReportedLive(base: LiveAgent, update: LiveAgent): LiveAgent {
-  if (
-    update.name !== base.name ||
-    (base.paneId != null && update.paneId != null &&
-      update.paneId !== base.paneId)
-  ) {
+  if (update.name !== base.name) {
     throw new DelegateError(
       "live_session_ambiguous",
-      "Herdr 응답의 agent 또는 pane이 전송 대상과 다릅니다",
+      "Herdr 응답의 agent가 전송 대상과 다릅니다",
       undefined,
       base.sessionId,
     );
