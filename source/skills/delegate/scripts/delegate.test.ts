@@ -2044,6 +2044,14 @@ Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회
       assertStringIncludes(result.stdout, "code: herdr_failed");
       assertStringIncludes(result.stdout, "message: wait refused");
     }
+    if (failure === "prompt") {
+      assertStringIncludes(result.stdout, "code: herdr_failed");
+      assertStringIncludes(result.stdout, "message: prompt refused");
+      assertEquals(
+        test.fake.calls.some((call) => call.args[1] === "close"),
+        false,
+      );
+    }
     if (failure === "raw") {
       assertEquals(
         test.fake.calls.filter((call) =>
@@ -2067,7 +2075,6 @@ Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회
     }
     if (
       [
-        "id-unavailable",
         "invalid-kind",
         "invalid-id",
       ].includes(failure)
@@ -2079,13 +2086,71 @@ Deno.test("관리 pane 시작이 회복된 뒤 후속 단계가 실패해도 회
         true,
       );
     }
-    if (failure === "native-missing") {
+    if (failure === "native-missing" || failure === "id-unavailable") {
       assertEquals(
         test.fake.calls.some((call) => call.args[1] === "close"),
         false,
       );
     }
   }
+});
+
+Deno.test("코덱스 훅 신뢰 화면에서 요청 관측이 멈춰도 pane을 보존하고 화면을 반환한다", async () => {
+  await using dir = await tempDir();
+  let now = 0;
+  const diagnostic = herdr({ agent: {} });
+  const test = setup(dir.path, "짧은 요청", [
+    ...newTabAllocation(),
+    herdr({ agent: unidentifiedAgent("idle", 1) }),
+    herdrError(
+      "agent_prompt_stalled",
+      "agent prompt produced no observed working or blocked state within 5000 ms; current status is idle",
+    ),
+    herdr({
+      agent: unidentifiedAgent("idle", 1),
+    }),
+    diagnostic,
+    { cmd: "herdr", stdout: "Hooks need review\n" },
+  ], {
+    env: { HERDR_ENV: "1" },
+    now: () => now,
+    sleep: () => {
+      now += 5_000;
+      return Promise.resolve();
+    },
+  });
+  diagnostic.onStart = () => {
+    const name = test.fake.calls.find((call) => call.args[1] === "start")
+      ?.args[2];
+    diagnostic.stdout = JSON.stringify({
+      result: {
+        agent: {
+          ...unidentifiedAgent("idle", 1),
+          name,
+          pane_id: "pane-delegate",
+        },
+      },
+    });
+  };
+
+  const result = await runDelegate([
+    "prompt",
+    "--agent",
+    "codex",
+    "--caller-id",
+    "caller",
+    "--timeout",
+    "1m",
+  ], test.deps);
+
+  assertEquals(result.code, 5);
+  assertStringIncludes(result.stdout, "code: session_id_unavailable");
+  assertStringIncludes(result.stdout, "pane_id: pane-delegate");
+  assertStringIncludes(result.stdout, "Hooks need review");
+  assertEquals(
+    test.fake.calls.some((call) => call.args[1] === "close"),
+    false,
+  );
 });
 
 Deno.test("Herdr gate와 정숙 판정은 deadline을 공유하고 중단 시 확인된 session ID를 보존한다", async () => {
@@ -2275,7 +2340,7 @@ Deno.test("짧은 Herdr prompt 제한 시간은 agent start 실패를 정리하�
     cancelled.fake.calls.some((call) =>
       call.args.join(" ") === "pane close pane-delegate"
     ),
-    true,
+    false,
   );
 
   for (
@@ -2584,7 +2649,7 @@ Deno.test("rename 또는 성공 후 자동 정리 중 중단되면 성공이나 
   }
 });
 
-Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만든 pane만 정리하고 원래 오류를 반환한다", async () => {
+Deno.test("agent start 실패만 새 pane을 정리하고 prompt 실패는 전달 가능성을 보존한다", async () => {
   for (const allocation of ["tab", "pane"] as const) {
     for (const stage of ["start", "prompt"] as const) {
       await using dir = await tempDir();
@@ -2622,7 +2687,7 @@ Deno.test("agent start 또는 최초 prompt가 실패하면 이번 호출이 만
         test.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
           call.args
         ),
-        [["pane", "close", "pane-delegate"]],
+        stage === "start" ? [["pane", "close", "pane-delegate"]] : [],
         `${allocation}-${stage}`,
       );
     }
@@ -2680,8 +2745,7 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
       };
     const test = setup(dir.path, "작업", [
       ...newTabAllocation(),
-      herdr({}),
-      herdrFailure("prompt refused"),
+      herdrFailure("start refused"),
       cleanupResponse,
     ], {
       env: { HERDR_ENV: "1" },
@@ -2703,9 +2767,11 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
     if (safety != null) clearTimeout(safety);
 
     assertEquals(result.code, 5, cleanupFailure);
-    assertStringIncludes(result.stdout, "message: prompt refused");
+    assertStringIncludes(result.stdout, "message: start refused");
     assertEquals(
-      test.fake.calls.slice(5).map((call) => call.args),
+      test.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
+        call.args
+      ),
       [["pane", "close", "pane-delegate"]],
       cleanupFailure,
     );
@@ -2714,8 +2780,7 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
   await using sharedDir = await tempDir();
   const shared = setup(sharedDir.path, "작업", [
     ...newTabAllocation(),
-    herdr({}),
-    herdrFailure("prompt refused"),
+    herdrFailure("start refused"),
     herdr({}),
   ], { env: { HERDR_ENV: "1" } });
   const sharedResult = await runDelegate([
@@ -2726,9 +2791,11 @@ Deno.test("실패 복구 정리가 실패하거나 기존 pane을 재사용해�
     "caller",
   ], shared.deps);
   assertEquals(sharedResult.code, 5);
-  assertStringIncludes(sharedResult.stdout, "message: prompt refused");
+  assertStringIncludes(sharedResult.stdout, "message: start refused");
   assertEquals(
-    shared.fake.calls.slice(5).map((call) => call.args),
+    shared.fake.calls.filter((call) => call.args[1] === "close").map((call) =>
+      call.args
+    ),
     [["pane", "close", "pane-delegate"]],
   );
 

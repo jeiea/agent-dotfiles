@@ -356,7 +356,8 @@ async function diagnosePane(
   deps: HerdrDeps,
 ): Promise<DelegateError> {
   if (
-    error.code !== "agent_blocked" && error.code !== "invalid_native_session"
+    error.code !== "agent_blocked" && error.code !== "invalid_native_session" &&
+    error.code !== "session_id_unavailable" && error.code !== "herdr_failed"
   ) return error;
   const signal = AbortSignal.any([
     deps.signal,
@@ -626,8 +627,10 @@ async function submitPrompt(
     ["idle", "done"].includes(live.status);
   let prompted: HerdrResult;
   try {
-    prompted = await withSessionError(
-      json(live.cwd ?? request.snapshot?.cwd ?? request.cwd, deps, [
+    prompted = await json(
+      live.cwd ?? request.snapshot?.cwd ?? request.cwd,
+      deps,
+      [
         "agent",
         "prompt",
         live.name,
@@ -650,15 +653,29 @@ async function submitPrompt(
             ),
           ]
           : []),
-      ]),
-      request.snapshot?.sessionId,
+      ],
     );
   } catch (error) {
     const normalized = normalizeError(error);
-    if (origin === "started" && normalized.code === "timeout") {
+    if (
+      origin === "started" &&
+      (normalized.code === "timeout" || error instanceof RetainPaneError)
+    ) {
       return { live, deliveryUncertain: true };
     }
-    if (normalized.code !== "agent_blocked") throw normalized;
+    if (normalized.code !== "agent_blocked") {
+      if (origin === "started") {
+        throw new RetainPaneError(
+          normalized.code,
+          normalized.message,
+          normalized.pane,
+          normalized.sessionId,
+          normalized.retry,
+          normalized.screen,
+        );
+      }
+      throw normalized;
+    }
     return {
       live: { ...live, status: "blocked" },
       deliveryUncertain: false,
@@ -1023,7 +1040,7 @@ async function waitForNativeSession(
   ensureTime(deadline, deps, reportedSessionId ?? knownSessionId);
   const candidateSessionId = reportedSessionId ?? knownSessionId;
   if (candidateSessionId == null) {
-    throw new DelegateError(
+    throw new RetainPaneError(
       "session_id_unavailable",
       "Herdr가 native session ID를 보고하지 않았습니다",
     );
@@ -1591,6 +1608,13 @@ async function json(
     const parsed = parseCommandError(output.stderr);
     if (parsed.code === "timeout") {
       throw new DelegateError("timeout", parsed.message);
+    }
+    if (
+      parsed.code === "agent_prompt_stalled" && args[0] === "agent" &&
+      args[1] === "prompt"
+    ) {
+      // Herdr는 입력을 전송한 뒤에도 작업 상태를 관측하지 못할 수 있다.
+      throw new RetainPaneError("herdr_failed", parsed.message);
     }
     if (
       parsed.code === "agent_blocked" ||
