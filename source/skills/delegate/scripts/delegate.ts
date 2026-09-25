@@ -36,6 +36,7 @@ import {
 } from "./document.ts";
 import {
   closeHerdr,
+  diagnoseSessionPane,
   type HerdrDeps,
   promptHerdr,
   statusHerdr,
@@ -199,7 +200,9 @@ function parser() {
 Herdr는 성공하면 관리 pane을 자동 정리하며 마지막 pane 뒤 빈 탭은 Herdr가 제거한다. 대화는 native 기록에 남아 같은 SESSION_ID로 재개 가능. Herdr 작업 중 사람이 직접 prompt를 넣어도 되며 그 turn까지 끝난 뒤 반환하고 추가 prompt는 intervening_prompts에 기록. pane 준비 경합으로 시작이 실패하면 한 번 자동 재시도하고 retry 필드에 기록. retry.result는 시작 회복 여부일 뿐 최종 성공과 무관.`,
         footer: message`error.code 대응
 
-agent_blocked: 사용자 입력 대기. 시작 차단은 prompt 미제출. blockers의 agent_name으로 herdr agent get/read/send-keys를 사용해 시작 화면 해소. native UUID가 있으면 원래 prompt를 그 SESSION_ID에 다시 제출하고, native UUID가 없으면 보존 pane을 명시적으로 닫고 새 prompt를 재시도
+agent_blocked: 사용자 입력 대기. 확인된 error.pane.pane_id와 마크다운 본문의 현재 화면을 보고 차단을 해소. 시작 차단은 prompt 미제출. session_id는 미리 발급된 UUID일 수 있으며 native 기록 파일은 아직 없을 수 있음. 파일이 없다면 원래 prompt를 재제출하기 전에 pane 상태를 확인하고, 필요 시 보존 pane을 명시적으로 정리
+
+invalid_native_session: pane이 확인되면 error.pane.pane_id와 현재 화면을 반환. 차단 해소 뒤에도 native 기록 파일이 없을 수 있으므로 pane을 확인하고 필요 시 정리
 
 live_option_conflict: 실행 중 session에 --permission·--model·--effort·--add-dir 지정
 
@@ -398,10 +401,8 @@ export async function runDelegate(
     if (prompt.trim() === "") {
       throw new DelegateError("usage", "빈 프롬프트입니다");
     }
-    const snapshot = parsed.target == null
-      ? undefined
-      : await findNativeSession(parsed.target, deps.env);
-    const agent = selectPromptAgent(parsed.agent, prompt, snapshot?.agent);
+    // Herdr 환경에서 Herdr 위임이 불가능하면 원인 해소를 최우선으로 한다.
+    // direct 전송으로 우회하기 전에 pane·session 연결 문제를 진단하고 복구한다.
     const transport = selectTransport(parsed.transport, deps.env).transport;
     if (transport === "herdr" && deps.env.HERDR_ENV !== "1") {
       throw new DelegateError(
@@ -409,6 +410,10 @@ export async function runDelegate(
         "Herdr 전송을 사용할 수 없습니다",
       );
     }
+    const snapshot = parsed.target == null
+      ? undefined
+      : await findNativeSession(parsed.target, deps.env);
+    const agent = selectPromptAgent(parsed.agent, prompt, snapshot?.agent);
     const request = {
       permission: parsed.permission ?? "write",
       cwd: snapshot?.cwd ?? deps.cwd,
@@ -450,6 +455,42 @@ export async function runDelegate(
   } catch (error) {
     const sessionId = parsed.target;
     const normalized = normalizeError(error);
+    if (
+      normalized.code === "agent_blocked" && normalized.pane == null &&
+      sessionId != null && parsed.kind !== "prompt" &&
+      deps.env.HERDR_ENV === "1"
+    ) {
+      const diagnosed = await diagnoseSessionPane(
+        sessionId,
+        deps.cwd,
+        herdrDeps,
+        normalized,
+      );
+      if (diagnosed != null) {
+        return failure(diagnosed, sessionId, undefined, "", {
+          activity: "blocked",
+        });
+      }
+    }
+    if (
+      normalized.code === "session_not_found" && sessionId != null &&
+      deps.env.HERDR_ENV === "1" &&
+      (parsed.kind !== "prompt" ||
+        selectTransport(parsed.transport, deps.env).transport === "herdr")
+    ) {
+      const diagnosed = await diagnoseSessionPane(
+        sessionId,
+        deps.cwd,
+        herdrDeps,
+      );
+      if (diagnosed != null) {
+        return failure(diagnosed, sessionId, undefined, "", {
+          ...(diagnosed.code === "agent_blocked"
+            ? { activity: "blocked" as const }
+            : {}),
+        });
+      }
+    }
     const knownSessionId = normalized.sessionId ?? sessionId;
     if (
       normalized.code === "agent_blocked" && knownSessionId != null &&
@@ -666,8 +707,9 @@ function failure(
       error: {
         code: error.code,
         message: error.message,
-        ...(error.blockers == null ? {} : { blockers: error.blockers }),
+        ...(error.pane == null ? {} : { pane: error.pane }),
       },
+      ...(error.screen == null ? {} : { screen: error.screen }),
       ...(error.retry == null ? {} : { retry: error.retry }),
     }),
     stderr,

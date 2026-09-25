@@ -36,6 +36,11 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 - 옵션·출력·오류 대응은 하위 명령 `--help` 확인
   - 터미널 멀티플렉서 herdr의 예외 정보는 `herdr --skill` 확인
 - 식별자는 코덱스·클로드 네이티브 세션 ID
+- 차단 오류는 확인된 `error.pane.pane_id`와 마크다운 본문의 현재 화면을 확인해
+  대응. 시작 차단은 요청이 제출되지 않은 상태
+- 클로드의 `session_id`는 시작 전에 발급된 UUID일 수 있어 네이티브 기록 파일의
+  존재를 뜻하지 않음. 차단 해소 뒤에도 파일이 없으면 보존 pane을 확인하고 필요
+  시 명시적으로 정리
 - Herdr의 `prompt`·`wait` 성공 시 옮긴 터미널 분할 창도 자동 정리
   - 같은 ID로 대화 재개 가능
   - `close`는 Herdr 창의 중단·자동 정리 실패 시 사용

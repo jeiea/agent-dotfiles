@@ -81,6 +81,7 @@ const paneLockWaitMs = 60_000;
 const activityGateMs = 30_000;
 const identityPollMs = 5_000;
 const recoveryMs = 500;
+const diagnosticMs = 1_000;
 
 export async function promptHerdr(
   request: HerdrPrompt,
@@ -97,9 +98,13 @@ export async function promptHerdr(
   const knownSessionId = expectedSessionId ?? assignedSessionId;
   let confirmedSessionId = knownSessionId;
   let retry: RetryRecord | undefined;
+  let diagnostic: PaneTarget | undefined;
   let live = expected == null
     ? undefined
     : await findLiveAgent(expected, executionDeps);
+  if (live != null && expected != null) {
+    diagnostic = paneTarget(live, expected.agent, expected.cwd);
+  }
   if (
     live != null && expected != null &&
     hasLiveOptionConflict(request, expected.agent)
@@ -157,10 +162,18 @@ export async function promptHerdr(
                   ownership = allocated;
                   ownedCwd = cwd;
                 },
+                (target) => {
+                  diagnostic = target;
+                },
               ),
               knownSessionId,
             );
             startRetry = agentStart.retry;
+            diagnostic = paneTarget(
+              agentStart.live,
+              request.invocation.agent,
+              ownedCwd,
+            );
             const submitted = await submitPromptOnly(
               request,
               agentStart.live,
@@ -225,6 +238,7 @@ export async function promptHerdr(
         executionDeps,
       );
       live = submitted.live;
+      diagnostic = paneTarget(live, request.invocation.agent, request.cwd);
       snapshot = submitted.snapshot;
       boundaryCursor = submitted.boundaryCursor;
     }
@@ -255,6 +269,9 @@ export async function promptHerdr(
         );
       }
       live.name = deterministic;
+      if (diagnostic != null) {
+        diagnostic = { ...diagnostic, name: deterministic };
+      }
     }
     live.sessionId = snapshot.sessionId;
     live.kind = snapshot.agent;
@@ -300,10 +317,191 @@ export async function promptHerdr(
     );
   } catch (error) {
     const normalized = normalizeError(error);
-    throw copyDelegateError(normalized, {
+    const preserved = copyDelegateError(normalized, {
       sessionId: normalized.sessionId ?? confirmedSessionId,
       retry: normalized.retry ?? retry,
     });
+    throw diagnostic == null
+      ? preserved
+      : await diagnosePane(preserved, diagnostic, deps);
+  }
+}
+
+type PaneTarget = {
+  name: string;
+  paneId: string;
+  cwd: string;
+  agent: Agent;
+  sessionId?: string;
+  strictPane?: boolean;
+};
+
+function paneTarget(
+  live: LiveAgent,
+  agent: Agent,
+  cwd: string,
+): PaneTarget | undefined {
+  return live.paneId == null ? undefined : {
+    name: live.name,
+    paneId: live.paneId,
+    cwd,
+    agent,
+    sessionId: live.sessionId,
+  };
+}
+
+async function diagnosePane(
+  error: DelegateError,
+  target: PaneTarget,
+  deps: HerdrDeps,
+): Promise<DelegateError> {
+  if (
+    error.code !== "agent_blocked" && error.code !== "invalid_native_session"
+  ) return error;
+  const signal = AbortSignal.any([
+    deps.signal,
+    AbortSignal.timeout(diagnosticMs),
+  ]);
+  try {
+    let confirmed = false;
+    let paneId = target.paneId;
+    let checkPane = false;
+    try {
+      const result = await diagnosticCall(
+        signal,
+        () => json(target.cwd, deps, ["agent", "get", target.name], signal),
+      );
+      const reported = agentFromResult(result, target.name);
+      const payload = Object.keys(objectValue(result.agent)).length === 0
+        ? result
+        : objectValue(result.agent);
+      const reportedName = stringValue(payload.name) ??
+        stringValue(payload.agent_name);
+      const sameAgent = (reportedName == null ||
+        reportedName === target.name) &&
+        (reported.cwd == null || reported.cwd === target.cwd) &&
+        (reported.kind == null || reported.kind === target.agent) &&
+        (reported.sessionId == null || target.sessionId == null ||
+          reported.sessionId.toLowerCase() === target.sessionId.toLowerCase());
+      if (!sameAgent) return error;
+      if (reported.paneId == null) {
+        checkPane = true;
+      } else {
+        if (target.strictPane && reported.paneId !== target.paneId) {
+          return error;
+        }
+        confirmed = true;
+        paneId = reported.paneId;
+      }
+    } catch {
+      checkPane = true;
+    }
+    if (checkPane) {
+      const result = await diagnosticCall(
+        signal,
+        () => json(target.cwd, deps, ["pane", "get", target.paneId], signal),
+      );
+      const pane = objectValue(result.pane);
+      confirmed = stringValue(pane.pane_id) === target.paneId &&
+        (stringValue(pane.agent) ?? stringValue(pane.agent_name)) ===
+          target.name;
+    }
+    if (!confirmed) return error;
+    let screen: string | undefined;
+    try {
+      const output = await diagnosticCall(
+        signal,
+        () =>
+          deps.exec(deps.env.HERDR_BIN_PATH ?? "herdr", [
+            "pane",
+            "read",
+            paneId,
+            "--source",
+            "visible",
+          ], {
+            cwd: target.cwd,
+            env: deps.env,
+            signal,
+          }),
+      );
+      if (output.code === 0) screen = output.stdout;
+    } catch { /* 화면 조회 실패는 원래 오류를 유지한다. */ }
+    return new DelegateError(
+      error.code,
+      error.message,
+      { pane_id: paneId },
+      error.sessionId,
+      error.retry,
+      screen,
+    );
+  } catch {
+    return error;
+  }
+}
+
+async function diagnosticCall<T>(
+  signal: AbortSignal,
+  command: () => Promise<T>,
+): Promise<T> {
+  if (signal.aborted) throw signal.reason;
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([command(), aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+export async function diagnoseSessionPane(
+  sessionId: string,
+  cwd: string,
+  deps: HerdrDeps,
+  original?: DelegateError,
+): Promise<DelegateError | undefined> {
+  if (!sessionIdPattern.test(sessionId)) return undefined;
+  const signal = AbortSignal.any([
+    deps.signal,
+    AbortSignal.timeout(diagnosticMs),
+  ]);
+  try {
+    const result = await diagnosticCall(
+      signal,
+      () => json(cwd, deps, ["agent", "list"], signal),
+    );
+    const name = deterministicName(sessionId);
+    const candidates = arrayObjects(result.agents).filter((value) =>
+      nameOf(value) === name &&
+      (sessionOf(value) == null ||
+        sessionOf(value)?.toLowerCase() === sessionId.toLowerCase()) &&
+      stringValue(value.cwd) === cwd
+    );
+    if (candidates.length !== 1) return undefined;
+    const live = liveFrom(candidates[0]!);
+    if (live.paneId == null || live.kind == null) return undefined;
+    const code = live.status === "blocked"
+      ? "agent_blocked"
+      : "invalid_native_session";
+    const message = code === "agent_blocked"
+      ? "에이전트가 사용자 입력을 기다립니다"
+      : `native session을 찾을 수 없습니다: ${sessionId}`;
+    const diagnosed = await diagnosePane(
+      original ?? new DelegateError(code, message, undefined, sessionId),
+      {
+        name,
+        paneId: live.paneId,
+        cwd,
+        agent: live.kind,
+        sessionId,
+      },
+      { ...deps, signal },
+    );
+    return diagnosed.pane == null ? undefined : diagnosed;
+  } catch {
+    return undefined;
   }
 }
 
@@ -528,11 +726,16 @@ async function identifySubmittedPrompt(
     const normalized = normalizeError(error);
     if (prompted.status === "blocked") {
       throw new RetainPaneError(
-        normalized.code,
-        normalized.message,
-        normalized.blockers,
+        normalized.code === "invalid_native_session"
+          ? "agent_blocked"
+          : normalized.code,
+        normalized.code === "invalid_native_session"
+          ? "에이전트가 사용자 입력을 기다립니다"
+          : normalized.message,
+        normalized.pane,
         normalized.sessionId,
         normalized.retry,
+        normalized.screen,
       );
     }
     throw normalized;
@@ -650,6 +853,7 @@ async function startAgent(
   deadline: number,
   deps: HerdrDeps,
   allocated: (ownership: OwnedPaneId, cwd: string) => void,
+  located: (target: PaneTarget) => void,
 ): Promise<{
   live: ManagedPane;
   retry?: RetryRecord;
@@ -663,8 +867,18 @@ async function startAgent(
     (ownership) => allocated(ownership, cwd),
   );
   const name = request.snapshot == null
-    ? `dlg-tmp-${crypto.randomUUID().slice(0, 8)}`
+    ? assignedSessionId == null
+      ? `dlg-tmp-${crypto.randomUUID().slice(0, 8)}`
+      : deterministicName(assignedSessionId)
     : deterministicName(request.snapshot.sessionId);
+  located({
+    name,
+    paneId: pane.paneId,
+    cwd,
+    agent: request.invocation.agent,
+    sessionId: assignedSessionId ?? request.snapshot?.sessionId,
+    strictPane: true,
+  });
   const herdrArgs = request.invocation.agent === "claude"
     ? [
       ...request.invocation.herdrArgs.filter((arg) =>
@@ -733,11 +947,7 @@ async function startAgent(
       throw new DelegateError(
         "agent_blocked",
         `${normalized.message}; agent start가 완료되지 않아 prompt를 제출하지 않았습니다`,
-        [{
-          pane_id: pane.paneId,
-          agent_name: name,
-          status: "blocked",
-        }],
+        undefined,
         normalized.sessionId,
         normalized.retry,
       );
@@ -818,7 +1028,7 @@ async function waitForNativeSession(
       "Herdr가 native session ID를 보고하지 않았습니다",
     );
   }
-  throw new DelegateError(
+  throw new RetainPaneError(
     "invalid_native_session",
     `native session을 찾을 수 없습니다: ${candidateSessionId}`,
     undefined,
@@ -986,7 +1196,7 @@ async function findLiveAgent(
       throw new DelegateError(
         error.code,
         error.message,
-        error.blockers,
+        error.pane,
         snapshot.sessionId,
       );
     }

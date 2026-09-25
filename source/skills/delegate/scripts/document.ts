@@ -39,12 +39,6 @@ export type PublicErrorCode =
   | "timeout"
   | "cancelled";
 
-export type Blocker = {
-  pane_id: string;
-  agent_name: string | null;
-  status: "working" | "blocked" | "unknown";
-};
-
 export type RetryRecord = {
   reason: {
     code: "herdr_failed";
@@ -63,23 +57,24 @@ export type DelegateDocument = {
   error?: {
     code: PublicErrorCode;
     message: string;
-    blockers?: Blocker[];
+    pane?: { pane_id: string };
   };
   warnings?: Array<{
     code: "cleanup_failed";
     message: string;
-    blockers?: Blocker[];
   }>;
   retry?: RetryRecord;
+  screen?: string;
 };
 
 export class DelegateError extends Error {
   constructor(
     readonly code: PublicErrorCode,
     message: string,
-    readonly blockers?: Blocker[],
+    readonly pane?: { pane_id: string },
     readonly sessionId?: string,
     readonly retry?: RetryRecord,
+    readonly screen?: string,
   ) {
     super(message);
   }
@@ -100,9 +95,10 @@ export function copyDelegateError(
   return new DelegateError(
     error.code,
     error.message,
-    error.blockers,
+    error.pane,
     overrides.sessionId ?? error.sessionId,
     overrides.retry ?? error.retry,
+    error.screen,
   );
 }
 
@@ -122,8 +118,18 @@ export function exitCode(code: PublicErrorCode): number {
 }
 
 export function renderDocument(document: DelegateDocument): string {
-  const { result, ...metadata } = document;
+  const { result, screen, ...metadata } = document;
   const frontmatter = `---\n${stringify(metadata, { lineWidth: -1 })}---\n`;
+  if (screen != null) {
+    const longest = Math.max(
+      0,
+      ...[...screen.matchAll(/`+/g)].map(([run]) => run.length),
+    );
+    const fence = "`".repeat(Math.max(3, longest + 1));
+    return `${frontmatter}\n${fence}text\n${screen}${
+      screen.endsWith("\n") ? "" : "\n"
+    }${fence}\n`;
+  }
   if (result == null) return frontmatter;
   return `${frontmatter}\n${result}${result.endsWith("\n") ? "" : "\n"}`;
 }
