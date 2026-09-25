@@ -10,7 +10,7 @@ allowed-tools: Skill(delegate) Skill(peer-review) Skill(flavor-review) Skill(cod
 - 구현·이후 검토에 계획자 세션 재사용 금지
 - 응답 대기 중 시간·탐색량을 이유로 독촉하거나 범위 축소 금지
 - 검증 수단 실행을 위해 모든 위임에 쓰기 권한 허용
-- 계획·검토의 범위 추가는 code-flavor의 포함 기준 적용 후 계획 갱신
+- 범위 추가 시 code-flavor의 포함 기준 적용 후 계획 갱신
 - 필수 아닌 개선점은 발견 단계와 무관하게 상황·재검토 조건만 제안 목록에 기록
   - 현재 작업 목록·완료 조건에서 제외
 
