@@ -349,6 +349,98 @@ function completedHerdrResponses(
   ];
 }
 
+Deno.test("현재 코덱스 pane이 두 번째 작업 공간이면 상속된 첫 번째 작업 공간 대신 그곳에 검토 탭을 만든다", async () => {
+  await using dir = await tempDir();
+  const callerId = "11111111-2222-4333-8444-555555555555";
+  const path = codexPath(dir.path);
+  const responses = completedHerdrResponses(path, `${prefix}검토 요청`);
+  responses[0] = herdr({
+    pane: {
+      workspace_id: "ws-1",
+      tab_id: "tab-stale",
+      pane_id: "pane-stale",
+      cwd: "/other-workspace",
+      agent_session: { kind: "id", value: codexId },
+    },
+  });
+  responses.splice(
+    1,
+    0,
+    herdr({
+      agents: [{
+        agent: "codex",
+        agent_session: { kind: "id", value: callerId },
+        pane: {
+          pane_id: "pane-caller",
+          tab_id: "tab-caller",
+          workspace_id: "ws-2",
+        },
+        cwd,
+      }],
+    }),
+  );
+  const test = setup(dir.path, "검토 요청", responses, {
+    env: { HERDR_ENV: "1", CODEX_THREAD_ID: callerId },
+  });
+
+  const result = await runDelegate([
+    "prompt",
+    "--agent",
+    "codex",
+    "--timeout",
+    "60s",
+  ], test.deps);
+
+  assertEquals(result.code, 0);
+  assertStringIncludes(result.stdout, "완료");
+  assertEquals(test.fake.calls.slice(0, 4).map(({ args }) => args), [
+    ["pane", "current", "--current"],
+    ["agent", "list"],
+    ["tab", "list", "--workspace", "ws-2"],
+    [
+      "tab",
+      "create",
+      "--workspace",
+      "ws-2",
+      "--cwd",
+      cwd,
+      "--label",
+      callerId,
+      "--no-focus",
+    ],
+  ]);
+});
+
+Deno.test("상속된 pane과 현재 코덱스 세션이 다르고 실제 pane을 찾지 못하면 다른 작업 공간에 탭을 만들지 않는다", async () => {
+  await using dir = await tempDir();
+  const callerId = "11111111-2222-4333-8444-555555555555";
+  const test = setup(dir.path, "검토 요청", [
+    herdr({
+      pane: {
+        workspace_id: "ws-1",
+        tab_id: "tab-stale",
+        agent_session: { kind: "id", value: codexId },
+      },
+    }),
+    herdr({ agents: [] }),
+  ], { env: { HERDR_ENV: "1", CODEX_THREAD_ID: callerId } });
+
+  const result = await runDelegate([
+    "prompt",
+    "--agent",
+    "codex",
+    "--timeout",
+    "60s",
+  ], test.deps);
+
+  assertEquals(result.code, 3);
+  assertStringIncludes(result.stdout, "caller_session_unavailable");
+  assertEquals(test.fake.calls.map(({ args }) => args), [
+    ["pane", "current", "--current"],
+    ["agent", "list"],
+  ]);
+});
+
 Deno.test("두 위임을 동시에 요청해도 각자 작업을 마치고 결과를 받는다", async () => {
   await using firstDir = await tempDir();
   await using secondDir = await tempDir();

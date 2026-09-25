@@ -1288,8 +1288,33 @@ async function allocatePane(
     throw error;
   }
   const current = objectValue(currentResult.pane);
-  const workspaceId = stringValue(current.workspace_id);
-  const currentTabId = stringValue(current.tab_id);
+  let callerPane = current;
+  if (
+    sessionIdPattern.test(callerId) &&
+    sessionOf(current)?.toLowerCase() !== callerId.toLowerCase()
+  ) {
+    const agents = arrayObjects(
+      (await json(cwd, deps, ["agent", "list"])).agents,
+    ).filter((agent) =>
+      sessionOf(agent)?.toLowerCase() === callerId.toLowerCase()
+    );
+    if (agents.length === 0) {
+      throw new DelegateError(
+        "caller_session_unavailable",
+        `현재 session의 Herdr pane을 찾을 수 없습니다: ${callerId}`,
+      );
+    }
+    if (agents.length !== 1) {
+      throw new DelegateError(
+        "live_session_ambiguous",
+        `현재 session의 Herdr pane이 복수입니다: ${callerId}`,
+      );
+    }
+    callerPane = agents[0]!;
+  }
+  const location = liveFrom(callerPane);
+  const workspaceId = location.workspaceId;
+  const currentTabId = location.tabId;
   if (workspaceId == null || currentTabId == null) {
     throw new DelegateError("herdr_failed", "현재 Herdr pane 정보가 없습니다");
   }
