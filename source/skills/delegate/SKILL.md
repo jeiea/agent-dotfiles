@@ -50,21 +50,21 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
   - `close`는 Herdr 창의 중단·자동 정리 실패 시 사용
 
 ```sh
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt --help
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts prompt --help
 
 # 새 동기 작업
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt \
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts prompt \
   --agent codex <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
 
 # 실행 중·종료 후 후속 요청
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts prompt <SESSION_ID> <<'PROMPT'
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
 <변경점, 후속 작업, 종료 조건>
 PROMPT
 
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts status <SESSION_ID>
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts wait <SESSION_ID> --timeout 20m
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts logs <SESSION_ID> --lines 200
-deno run -A {SKILL_BASE_DIR}/scripts/delegate.ts close <SESSION_ID>
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts status <SESSION_ID>
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts wait <SESSION_ID> --timeout 20m
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts logs <SESSION_ID> --lines 200
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts close <SESSION_ID>
 ```
