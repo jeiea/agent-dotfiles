@@ -1,7 +1,8 @@
 import { assertEquals } from "jsr:@std/assert@^1";
 import { _internals, getGitRepoDefaultBranch } from "./get_default_branch.ts";
 
-const { extractRemotesFromConfig, getBranchUpstream, extractDefaultBranch } = _internals;
+const { extractRemotesFromConfig, getBranchUpstream, extractDefaultBranch } =
+  _internals;
 
 Deno.test("extractRemotesFromConfig extracts single remote", () => {
   const config = `user.name=John Doe

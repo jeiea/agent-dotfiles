@@ -21,7 +21,15 @@
     "sync": "deno task build && deno task install"
   },
   "fmt": {
-    "include": ["deno.json", "source/skills/**/*.ts"]
+    "include": [
+      "**/*.js",
+      "**/*.jsx",
+      "**/*.json",
+      "**/*.jsonc",
+      "**/*.md",
+      "**/*.ts",
+      "**/*.tsx"
+    ]
   },
   "exclude": ["clients/**/*"],
   "lint": {

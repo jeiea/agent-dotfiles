@@ -11,7 +11,10 @@ export async function getGitRepoDefaultBranch(path: string) {
   return await getDefaultBranch(path, currentBranch);
 }
 
-export async function getRemoteForBranch(path: string, sourceBranch: string): Promise<string> {
+export async function getRemoteForBranch(
+  path: string,
+  sourceBranch: string,
+): Promise<string> {
   const config = await runGitCommand(["config", "--list"], path);
   const remotes = extractRemotesFromConfig(config);
   const firstRemote = remotes[0];
@@ -27,7 +30,9 @@ export async function getDefaultBranch(path: string, sourceBranch: string) {
   const stdout = await runGitCommand(["remote", "show", remote], path);
   const defaultBranch = extractDefaultBranch(stdout);
   if (!defaultBranch) {
-    throw new Error(`default branch not found\ncwd: ${path}\ngit remote show ${remote}: ${stdout}`);
+    throw new Error(
+      `default branch not found\ncwd: ${path}\ngit remote show ${remote}: ${stdout}`,
+    );
   }
 
   return `refs/remotes/${remote}/${defaultBranch}`;
@@ -38,7 +43,9 @@ function extractRemotesFromConfig(config: string) {
 }
 
 function getBranchUpstream(config: string, currentBranch: string) {
-  return config.match(new RegExp(`branch\.${RegExp.escape(currentBranch)}\.remote=(.*)`))?.[1];
+  return config.match(
+    new RegExp(`branch\.${RegExp.escape(currentBranch)}\.remote=(.*)`),
+  )?.[1];
 }
 
 function extractDefaultBranch(stdout: string) {
