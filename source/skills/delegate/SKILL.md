@@ -41,30 +41,26 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 - 클로드의 `session_id`는 시작 전에 발급된 UUID일 수 있어 네이티브 기록 파일의
   존재를 뜻하지 않음. 차단 해소 뒤에도 파일이 없으면 보존 pane을 확인하고 필요
   시 명시적으로 정리
-- 코덱스의 허더 위임이 `session_id_unavailable`이면
-  `herdr integration status`에서 코덱스 훅을 확인. 미설치면
-  `herdr integration install codex` 후 새 코덱스 화면의 훅 신뢰 확인을 해소.
-  보존된 pane의 요청을 다시 제출하지 말고 화면부터 확인
 - Herdr의 `prompt`·`wait` 성공 시 옮긴 터미널 분할 창도 자동 정리
   - 같은 ID로 대화 재개 가능
   - `close`는 Herdr 창의 중단·자동 정리 실패 시 사용
 
 ```sh
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts prompt --help
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts prompt --help
 
 # 새 동기 작업
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts prompt \
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts prompt \
   --agent codex <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
 
 # 실행 중·종료 후 후속 요청
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
 <변경점, 후속 작업, 종료 조건>
 PROMPT
 
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts status <SESSION_ID>
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts wait <SESSION_ID> --timeout 20m
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts logs <SESSION_ID> --lines 200
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/29072f71e018c03e53b947133fe6b9070f98b517/src/delegate.ts close <SESSION_ID>
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts status <SESSION_ID>
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts wait <SESSION_ID> --timeout 20m
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts logs <SESSION_ID> --lines 200
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/350f7af1afb6fd642718734e3cdaeb436ebc1e10/src/delegate.ts close <SESSION_ID>
 ```
