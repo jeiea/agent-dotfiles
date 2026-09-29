@@ -8,6 +8,8 @@ description: jsr 문서 확인 방법, 신규 프로젝트 템플릿, 로컬 의
 - 의존성은 `npm:` 보다 `jsr:` 선호
 - `NO_COLORS=1 deno test` 등으로 색상 문자 노이즈 제거 가능
   - PowerShell: `$env:NO_COLOR='1'; deno test; Remove-Item Env:NO_COLOR`
+- 윈도에서 명령행 타입 검사와 LSP 진단 불일치 시 재현에 필요한 메모리 상태
+  보존을 위해 조사 자료 확보 전 LSP 종료·재시작 금지
 
 # 유저 선호 디노 프로젝트 템플릿
 
