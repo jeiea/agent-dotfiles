@@ -20,8 +20,8 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 
 # 역할별 delegate
 
-- 구현: `--agent codex`
-- 검토: `--agent claude`
+- 구현: 직접 또는 `--agent same`
+- 검토: `--agent other --model gpt-6-astra`
 
 # 절차
 
