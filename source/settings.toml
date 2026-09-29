@@ -58,6 +58,9 @@ hide_full_access_warning = true
 [clients.codex.config.tui]
 vim_mode_default = false
 
+[clients.codex.config.tui.keymap.editor]
+insert_newline = ["ctrl-j", "ctrl-m", "enter", "shift-enter", "alt-enter", "ctrl-enter"]
+
 [clients.codex.config.windows]
 sandbox = "elevated"
 
