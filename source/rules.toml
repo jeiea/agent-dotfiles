@@ -68,6 +68,7 @@ patterns = [
   "pwd",
   "qmd *",
   "read *",
+  "/^rm(?: -[rRf]+)*(?: /private/tmp/claude(?:(?!\\.\\.)[\\w./*?-])*)+$/",
   "permcheck *",
   "playwright-cli *",
   "reg query *",
@@ -800,4 +801,58 @@ expect = "passthrough"
 description = "Skill codex-tools:codex passthrough"
 tool = "Skill"
 input = { skill = "codex-tools:codex" }
+expect = "passthrough"
+
+[[tests]]
+description = "rm claude tmp file allow"
+tool = "Bash"
+input = { command = "rm /private/tmp/claude-501/session/scratchpad/s1.png" }
+expect = "allow"
+
+[[tests]]
+description = "rm -rf claude tmp dirs and globs allow"
+tool = "Bash"
+input = { command = "rm -rf /private/tmp/claude-501/a/scratchpad /private/tmp/claude-501/b/*.png" }
+expect = "allow"
+
+[[tests]]
+description = "rm claude tmp path traversal passthrough"
+tool = "Bash"
+input = { command = "rm /private/tmp/claude-501/../../Users/jarry/file" }
+expect = "passthrough"
+
+[[tests]]
+description = "rm -rf claude tmp path traversal deny"
+tool = "Bash"
+input = { command = "rm -rf /private/tmp/claude/../x" }
+expect = "deny"
+
+[[tests]]
+description = "rm -rf claude tmp with extra outside path deny"
+tool = "Bash"
+input = { command = "rm -rf /private/tmp/claude-501/a /etc" }
+expect = "deny"
+
+[[tests]]
+description = "rm -rf claude tmp with variable expansion deny"
+tool = "Bash"
+input = { command = "rm -rf /private/tmp/claude-501/$HOME" }
+expect = "deny"
+
+[[tests]]
+description = "rm claude tmp with command substitution passthrough"
+tool = "Bash"
+input = { command = "rm -rf /private/tmp/claude-501/`whoami`" }
+expect = "passthrough"
+
+[[tests]]
+description = "rm non-claude tmp passthrough"
+tool = "Bash"
+input = { command = "rm /private/tmp/other" }
+expect = "passthrough"
+
+[[tests]]
+description = "rm claude tmp chained with other rm passthrough"
+tool = "Bash"
+input = { command = "rm -rf /private/tmp/claude-501/a; rm -rf ~" }
 expect = "passthrough"
