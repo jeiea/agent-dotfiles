@@ -20,6 +20,7 @@ agentPushNotifEnabled = true
 skipAutoPermissionPrompt = true
 remoteControlAtStartup = false
 feedbackDrafts = "off"
+language = "korean"
 
 [clients.claude.config.env]
 NO_COLOR = "1"
