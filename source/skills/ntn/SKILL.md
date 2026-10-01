@@ -22,7 +22,15 @@ ntn pages create --parent data-source:<data-source-id> < page.md
 ```
 
 - 페이지 수정 전 현재 내용 먼저 조회
-- ntn pages는 페이지 속성 설정, 템플릿 확인 불가. 필요 시 ntn api 사용.
+- 본문은 표준 입력으로 전달
+  - `--content` 값이 `---`로 시작하면 옵션으로 오인
+- 속성 설정·템플릿 확인은 `ntn api` 사용
+  - 앞머리 속성은 생성 시 `title`만 반영, 나머지 무시
+- 데이터 소스 행: `pages create`로 본문 생성 후 속성 PATCH
+
+```bash
+ntn api v1/pages/<page-id> -X PATCH -d '{"properties":{...}}'
+```
 
 # 데이터 소스 작업
 

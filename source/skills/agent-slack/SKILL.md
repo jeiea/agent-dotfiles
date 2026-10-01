@@ -1,7 +1,7 @@
 ---
 name: agent-slack
 description: agent-slack CLI로 Slack(슬랙) 메시지 조회, 검색, 작성, 수정 시 사용
-allowed-tools: Bash(agent-slack message get:*), Bash(agent-slack message list:*), Bash(agent-slack search:*), Bash(agent-slack help:*), Bash(agent-slack message compose:*), Bash(agent-slack message draft list:*), Bash(agent-slack message react add:*), Bash(agent-slack message react remove:*), Bash(agent-slack auth:*)
+allowed-tools: Bash(agent-slack message get:*), Bash(agent-slack message list:*), Bash(agent-slack search:*), Bash(agent-slack help:*), Bash(AGENT_SLACK_COMMAND_TIMEOUT_MS=900000 agent-slack message compose:*), Bash(agent-slack message draft list:*), Bash(agent-slack message react add:*), Bash(agent-slack message react remove:*), Bash(agent-slack auth:*)
 ---
 
 # 기본 원칙
@@ -49,8 +49,9 @@ agent-slack search all "incident review" --channel "eng" --limit 10
 
 ```bash
 # 유저에게 초안 전송. 명령어 실행 수락 불필요 (브라우저 편집기, 비대화 환경에선 send와 동일)
-agent-slack message compose "general"
-agent-slack message compose "https://workspace.slack.com/archives/C123/p1700000000000000" "[배포 알림] ..."
+# 편집 중 종료되지 않도록 기본 30초 제한을 15분으로 연장
+AGENT_SLACK_COMMAND_TIMEOUT_MS=900000 agent-slack message compose "general"
+AGENT_SLACK_COMMAND_TIMEOUT_MS=900000 agent-slack message compose "https://workspace.slack.com/archives/C123/p1700000000000000" "[배포 알림] ..."
 
 # 슬랙 앱 초안함에 저장, 전송 안 함
 agent-slack message draft create "general" "[배포 알림] ..."
