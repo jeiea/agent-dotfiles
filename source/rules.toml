@@ -21,6 +21,7 @@ patterns = [
   "cd *",
   "chmod *",
   "claude --version",
+  "claude auto-mode defaults",
   "codex *",
   "comm *",
   "cp *",
@@ -50,6 +51,7 @@ patterns = [
   "/^(git|yadm) -C (?:\\\\ |\\S)+ (?!reset( .*)? (--hard|[\"']--hard[\"']|\\\\--hard)( |$))(?!push( |$))(?!stash drop( |$))(?!clean( |$)).+$/",
   "/^yadm (?!-C )push((?! --force| -f($| )).)*$/",
   "grep *",
+  "/^herdr pane (list|current|get|layout|process-info|read|send-keys)( .*)?$/",
   "head *",
   "jq *",
   "ls *",
@@ -97,6 +99,7 @@ patterns = [
   "xxd *",
   "./gradlew *",
   "/^[\\w.-]+ (--version|-v|-V)$/",
+  "/^[\\w.-]+(?: [\\w-]+)* --help$/",
 ]
 
 [[rules]]
@@ -855,4 +858,34 @@ expect = "passthrough"
 description = "rm claude tmp chained with other rm passthrough"
 tool = "Bash"
 input = { command = "rm -rf /private/tmp/claude-501/a; rm -rf ~" }
+expect = "passthrough"
+
+[[tests]]
+description = "subcommand help allow"
+tool = "Bash"
+input = { command = "fnox proxy run --help 2>&1 | head -40" }
+expect = "allow"
+
+[[tests]]
+description = "help with extra args passthrough"
+tool = "Bash"
+input = { command = "fnox proxy run ./x --help" }
+expect = "passthrough"
+
+[[tests]]
+description = "claude auto-mode defaults allow"
+tool = "Bash"
+input = { command = "claude auto-mode defaults 2>&1 | head -40" }
+expect = "allow"
+
+[[tests]]
+description = "herdr pane read-only and send-keys allow"
+tool = "Bash"
+input = { command = "herdr pane process-info --pane w5F:p6 2>&1 | head -30; herdr pane send-keys w5F:p6 Enter" }
+expect = "allow"
+
+[[tests]]
+description = "herdr pane close passthrough"
+tool = "Bash"
+input = { command = "herdr pane close w5A:p3" }
 expect = "passthrough"
