@@ -10,6 +10,13 @@ command = "/.*/"
 
 [[rules]]
 tools = ["Bash", "Monitor"]
+action = "deny"
+reason = "루트 전체 검색 대신 범위를 좁혀주세요"
+[rules.match]
+patterns = ["/^(?:find|fd)(?: .*)? (?:--(?:search-path|base-directory)=|-C)?['\"]?/+['\"]?(?: .*)?$/"]
+
+[[rules]]
+tools = ["Bash", "Monitor"]
 [rules.match]
 patterns = [
   "/^\\w+=\\S*\\s+(.+)$/",
@@ -112,7 +119,6 @@ tools = ["Bash", "Monitor"]
 action = "deny"
 [rules.match]
 patterns = [
-  "find / *",
   "rm -rf /*",
 ]
 
@@ -601,6 +607,48 @@ description = "git stash drop passthrough"
 tool = "Bash"
 input = { command = "git stash drop stash@{0}" }
 expect = "passthrough"
+
+[[tests]]
+description = "find root deny"
+tool = "Bash"
+input = { command = "find / -name x" }
+expect = "deny"
+
+[[tests]]
+description = "fd root search path deny"
+tool = "Bash"
+input = { command = "fd -H x /" }
+expect = "deny"
+
+[[tests]]
+description = "fd search-path root deny"
+tool = "Bash"
+input = { command = "fd --search-path=/ x" }
+expect = "deny"
+
+[[tests]]
+description = "find quoted root deny"
+tool = "Bash"
+input = { command = "find '/' -name x" }
+expect = "deny"
+
+[[tests]]
+description = "fd short base directory root deny"
+tool = "Bash"
+input = { command = "fd -C/ x" }
+expect = "deny"
+
+[[tests]]
+description = "fd subdirectory allow"
+tool = "Bash"
+input = { command = "fd x /Users/me/project" }
+expect = "allow"
+
+[[tests]]
+description = "find subdirectory allow"
+tool = "Bash"
+input = { command = "find /Users/me/project -name x" }
+expect = "allow"
 
 [[tests]]
 description = "rm root deny"
