@@ -33,18 +33,18 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 - `herdr agent` 직접 조립·원본 기록 조회는 스크립트 결함 조사에 한정
 
 ```sh
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/66f4e3fb5dcfe5686a6f59add91fe5b0154bd860/src/delegate.ts prompt --help
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/ce69d4697a67fa3d8362a47f7988422830f04183/src/delegate.ts prompt --help
 
 # 새 작업
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/66f4e3fb5dcfe5686a6f59add91fe5b0154bd860/src/delegate.ts prompt --agent other <<'PROMPT'
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/ce69d4697a67fa3d8362a47f7988422830f04183/src/delegate.ts prompt --agent other <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
 
 # 실행 중·종료 후 후속 요청
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/66f4e3fb5dcfe5686a6f59add91fe5b0154bd860/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/ce69d4697a67fa3d8362a47f7988422830f04183/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
 <변경점, 후속 작업, 종료 조건>
 PROMPT
 
 # 진단·연결 유실 뒤 회수·중단
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/66f4e3fb5dcfe5686a6f59add91fe5b0154bd860/src/delegate.ts <status|wait|logs|close> <SESSION_ID>
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/ce69d4697a67fa3d8362a47f7988422830f04183/src/delegate.ts <status|wait|logs|close> <SESSION_ID>
 ```
