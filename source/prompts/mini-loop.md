@@ -1,13 +1,18 @@
 ---
 name: mini-loop
-description: 구현·검토 역할을 분리해 복잡한 작업을 반복 수행. delegate, report-flavor, commit-flavor, flavor-review, code-flavor 의존
-allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(flavor-review) Skill(code-flavor)
+description: 구현·검토 역할을 분리해 복잡한 작업을 반복 수행. delegate, report-flavor, commit-flavor, flavor-review, code-flavor, worktree-first 의존
+allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(flavor-review) Skill(code-flavor) Skill(worktree-first)
 ---
 
 # 원칙
 
-- 조율자로서 역할 위임, 응답 수신, 유저 질의, 정정·재작업 직접 조율
-- 구현·검토 세션 분리
+- 조율자는 조사·구현·검토를 delegate로 위임하고 병렬 조율로 처리 효율 극대화
+  - 직접 수행은 유저 질의·결과 대조·정정 지시
+- 의존 없는 위임은 백그라운드로 동시 실행 후 도착 순 회수
+  - 조사는 영역·관점별 분할
+  - 구현은 의존·수정 파일이 겹치지 않는 커밋 단위로 병렬화
+  - 완료 단위 커밋 기준 검토와 다음 단위 구현 병렬화
+  - 작업 트리 상태 간섭 시 worktree-first로 격리, 불가하면 순차
 - 모든 역할이 요청 수신·결과 회수 시 code-flavor ponytail 기준 단순화 의심
   - 위임 요청에 명시
 - 유저 요구 원문과 1단계 예상 변경을 기준선으로 유지
@@ -20,8 +25,8 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 
 # 역할별 delegate
 
-- 구현: 직접 또는 `--agent same`
-- 검토: `--agent other --model gpt-6-astra`
+- 조사·구현: `--agent same`
+- 검토: 구현과 별도 세션에서 `--agent other --model gpt-6-astra`
 
 # 절차
 
@@ -29,7 +34,7 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 
 1. 유저에게 report-flavor로 예상 변경 공유
    - 신규 파일 3개 이상 또는 원인 분석 결론 포함 시 컨펌 요청
-2. 적절한 커밋 단위로 나눠 구현자에게 구현, 테스트·린트·정적 검사 요청
+2. 커밋 단위로 나눠 구현자에게 구현, 테스트·린트·정적 검사 요청
 3. commit-flavor 후 flavor-review로 요청·예상 변경·구현 결과 검토
    - Must fix는 근거 요구·기존 계약 명시, 없으면 제안 목록
    - 배타적 대안은 요구와 flavor 기준으로 하나만 선택
