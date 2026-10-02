@@ -6,12 +6,9 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 
 # 원칙
 
-- 조율자는 조사·구현·검토를 delegate로 위임하고 병렬 조율로 처리 효율 극대화
-  - 직접 수행은 유저 질의·결과 대조·정정 지시
-- 의존 없는 위임은 백그라운드로 동시 실행 후 도착 순 회수
-  - 조사는 영역·관점별 분할
-  - 구현은 의존·수정 파일이 겹치지 않는 커밋 단위로 병렬화
-  - 완료 단위 커밋 기준 검토와 다음 단위 구현 병렬화
+- 조율자는 조사·구현 직접 수행, 검토는 역할별 delegate 규칙에 따라 위임
+- 메인 세션에 요구된 작업이 동시에 2개 이상이면 독립성·조율 비용을 고려해
+  조사·구현 위임과 병렬 실행 여부 판단
   - 작업 트리 상태 간섭 시 worktree-first로 격리, 불가하면 순차
 - 모든 역할이 요청 수신·결과 회수 시 code-flavor ponytail 기준 단순화 의심
   - 위임 요청에 명시
@@ -34,7 +31,7 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 
 1. 유저에게 report-flavor로 예상 변경 공유
    - 신규 파일 3개 이상 또는 원인 분석 결론 포함 시 컨펌 요청
-2. 커밋 단위로 나눠 구현자에게 구현, 테스트·린트·정적 검사 요청
+2. 커밋 단위로 직접 또는 위임해 구현·테스트·린트·정적 검사 수행
 3. commit-flavor 후 flavor-review로 요청·예상 변경·구현 결과 검토
    - Must fix는 근거 요구·기존 계약 명시, 없으면 제안 목록
    - 배타적 대안은 요구와 flavor 기준으로 하나만 선택
