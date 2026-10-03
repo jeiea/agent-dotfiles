@@ -23,7 +23,7 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 # 역할별 delegate
 
 - 조사·구현: `--agent same`
-- 검토: 구현과 별도 세션에서 `--agent other --model gpt-6-astra`
+- 검토: `--agent other --model gpt-6-astra`
 
 # 절차
 
