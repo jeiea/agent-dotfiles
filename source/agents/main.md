@@ -13,7 +13,6 @@
 - 스크래치 파일: `scratch-[name].local.md`
   - 유저 요청 시에만 사용
 - 도구 호출 JSON의 비ASCII 문자 그대로 작성
-- soa memory는 지시 없이 수정 금지
 - 코덱스 터미널 세션 폴링 기본값: `yield_time_ms: 300000`
 
 ## 상황별 반드시 확인할 스킬
