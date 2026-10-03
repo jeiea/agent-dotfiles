@@ -38,6 +38,10 @@ deno task plugins -- list         # 논리 플러그인 조회
 deno task test                    # source/ 내 테스트
 ```
 
+## 스킬 수정 시
+
+skill-flavor 준수
+
 ## permcheck 연동
 
 `source/rules.toml`은 permcheck 훅이 사용하는 도구 허용 규칙 파일. permcheck는
