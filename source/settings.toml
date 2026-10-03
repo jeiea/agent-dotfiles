@@ -3,7 +3,7 @@ path = "source"
 
 [clients.claude]
 path = "clients/claude"
-plugins = ["memory", "remote-skills"]
+plugins = ["memory", "remote-skills", "work"]
 main_agent = "main"
 
 [clients.claude.config]
@@ -32,12 +32,12 @@ pr = ""
 
 [clients.opencode]
 path = "clients/opencode"
-plugins = ["remote-skills"]
+plugins = ["remote-skills", "work"]
 main_agent = "main"
 
 [clients.codex]
 path = "clients/codex"
-plugins = ["memory", "remote-skills"]
+plugins = ["memory", "remote-skills", "work"]
 main_agent = "main"
 
 [clients.codex.config.features]
@@ -198,5 +198,5 @@ enabled = false
 
 [clients.pi]
 path = "clients/pi"
-plugins = ["remote-skills"]
+plugins = ["remote-skills", "work"]
 main_agent = "main"

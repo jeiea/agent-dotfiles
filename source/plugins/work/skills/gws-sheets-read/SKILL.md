@@ -11,7 +11,8 @@ metadata:
 
 # sheets +read
 
-> **PREREQUISITE:** Read `../gws-shared/SKILL.md` for auth, global flags, and security rules. If missing, run `gws generate-skills` to create it.
+> **PREREQUISITE:** Read `../gws-shared/SKILL.md` for auth, global flags, and
+> security rules. If missing, run `gws generate-skills` to create it.
 
 Read values from a spreadsheet
 
@@ -42,7 +43,8 @@ gws sheets +read --spreadsheet ID --range Sheet1
 
 ### URL의 `gid` → 탭 이름 매핑
 
-공유 URL에 `#gid=2049372008`가 있으면 탭을 이름으로 조회할 수 없으므로 먼저 메타데이터에서 매핑합니다.
+공유 URL에 `#gid=2049372008`가 있으면 탭을 이름으로 조회할 수 없으므로 먼저
+메타데이터에서 매핑합니다.
 
 ```bash
 gws sheets spreadsheets get --params '{"spreadsheetId":"<ID>"}' \
@@ -57,4 +59,5 @@ gws sheets spreadsheets get --params '{"spreadsheetId":"<ID>"}' \
 ## See Also
 
 - [gws-shared](../gws-shared/SKILL.md) — Global flags and auth
-- [gws-sheets](../gws-sheets/SKILL.md) — All read and write spreadsheets commands
+- [gws-sheets](../gws-sheets/SKILL.md) — All read and write spreadsheets
+  commands

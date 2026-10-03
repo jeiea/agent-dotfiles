@@ -10,7 +10,7 @@
     "settings": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net $SOA_URL/src/main.ts settings",
     "plugins": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=git $SOA_URL/src/main.ts plugins",
     "lint": "deno lint --fix",
-    "check": "deno check source/skills/**/*.ts",
+    "check": "deno check source/**/*.ts",
     "test": {
       "dependencies": ["test:deno", "test:permcheck"]
     },

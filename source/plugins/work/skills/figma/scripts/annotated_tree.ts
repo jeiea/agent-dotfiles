@@ -820,7 +820,7 @@ function messageFromUnknown(error: unknown): string {
 
 function printHelp() {
   console.info(`Usage:
-  deno run --allow-run=fig --allow-write source/skills/figma/scripts/annotated_tree.ts <file-or-url> --node-id <id> [--output report.md]
+  deno run --allow-run=fig --allow-write "${import.meta.url}" <file-or-url> --node-id <id> [--output report.md]
 
 Options:
   --node-id, -n       Root node ID

@@ -1,12 +1,12 @@
 ---
 name: draft-pr
 description: 유저에게 PR 초안 폼을 띄웁니다
-allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(deno:*) Bash(yarn:*) Bash(pnpm:*) Skill(get-pr-changes) Skill(flavor-review)
+allowed-tools: Bash(git:*) Bash(gh pr create:*) Bash(gh pr view:*) Bash(deno:*) Bash(yarn:*) Bash(pnpm:*) Skill(flavor-review)
 ---
 
 # 맥락 수집
 
-1. 예상 PR 변경 내역을 get-pr-changes 스킬로 확인
+1. 예상 PR 변경 내역 확인
    - 포함해야 할 미커밋 변경사항이 있으면 먼저 커밋
 2. 제품 방향성에 영향을 주는 경우 figma, notion, slack 중 가용한 도구 전부에서
    최근 1달 이내 관련 자료, 근거 수집

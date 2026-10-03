@@ -122,8 +122,10 @@ without re-querying child frames, prefer the bundled annotated tree script.
 
 Basic usage:
 
+`{SKILL_BASE_DIR}` is the directory containing this `SKILL.md`.
+
 ```bash
-deno run --allow-run=fig --allow-write source/skills/figma/scripts/annotated_tree.ts \
+deno run --allow-run=fig --allow-write "{SKILL_BASE_DIR}/scripts/annotated_tree.ts" \
   <file-or-url> \
   --node-id <node-id> \
   --output scratch.local.md
