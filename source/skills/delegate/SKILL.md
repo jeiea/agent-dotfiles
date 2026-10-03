@@ -26,6 +26,8 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 
 # 실행
 
+- Herdr 환경에서는 연결 문제 진단·복구 우선
+- `direct` 필요 시 사용 전 유저에게 필요 사유·Herdr 진단 결과 보고
 - 옵션·출력 필드·오류·경고 대응은 `--help` 확인
   - herdr 예외는 `herdr --skill` 확인
 - 호스트 도구가 백그라운드 실행 ID를 반환하면 그 실행을 기다려 최종 출력·종료
@@ -33,18 +35,18 @@ allowed-tools: Bash(herdr *) Bash(deno run *)
 - `herdr agent` 직접 조립·원본 기록 조회는 스크립트 결함 조사에 한정
 
 ```sh
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/c1f969eed1ebb307a35c14f88b083e1db905639d/src/delegate.ts prompt --help
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/f66c78aa6d897684fb9336403e655c0c53057d57/src/delegate.ts prompt --help
 
 # 새 작업
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/c1f969eed1ebb307a35c14f88b083e1db905639d/src/delegate.ts prompt --agent other <<'PROMPT'
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/f66c78aa6d897684fb9336403e655c0c53057d57/src/delegate.ts prompt --agent other <<'PROMPT'
 <역할, 맥락, 작업, 종료 조건>
 PROMPT
 
 # 실행 중·종료 후 후속 요청
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/c1f969eed1ebb307a35c14f88b083e1db905639d/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/f66c78aa6d897684fb9336403e655c0c53057d57/src/delegate.ts prompt <SESSION_ID> <<'PROMPT'
 <변경점, 후속 작업, 종료 조건>
 PROMPT
 
 # 진단·연결 유실 뒤 회수·중단
-deno run -A https://raw.githubusercontent.com/jeiea/delegate/c1f969eed1ebb307a35c14f88b083e1db905639d/src/delegate.ts <status|wait|logs|close> <SESSION_ID>
+deno run -A https://raw.githubusercontent.com/jeiea/delegate/f66c78aa6d897684fb9336403e655c0c53057d57/src/delegate.ts <status|wait|logs|close> <SESSION_ID>
 ```
