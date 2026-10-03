@@ -1,4 +1,4 @@
 [env]
 # 워크트리에는 비추적 .env가 없어 공용 깃 디렉터리 옆 메인 체크아웃 파일을 읽는다
 _.file = ["{{ exec(command='git rev-parse --path-format=absolute --git-common-dir') }}/../.env"]
-SOA_URL = "https://raw.githubusercontent.com/jeiea/soa/1479d39"
+SOA_URL = "https://raw.githubusercontent.com/jeiea/soa/7e2b524"
