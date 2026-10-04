@@ -26,7 +26,12 @@ agent-files/
 ```
 
 CLI 도구(soa)는 별도 저장소: https://github.com/jeiea/soa `$SOA_URL`
-환경변수(mise.toml)로 raw GitHub URL 참조. 인증은 `.env`의 `DENO_AUTH_TOKENS`.
+환경변수(mise.toml)로 raw GitHub URL 참조. 인증은 `fnox.local.toml`에 age로
+암호화한 `DENO_AUTH_TOKENS`를 사용한다. `mise exec -- deno task <명령>`으로
+실행하며, 인증이 필요한 작업에서만 `fnox exec`로 토큰을 주입한다. 새
+워크트리에는 메인 체크아웃의 `fnox.local.toml`을 복사하고, 토큰 갱신 시 복사본도
+갱신한다. age 개인키는 fnox 설정 폴더(`FNOX_CONFIG_DIR`)의 `age.txt`에 두고
+저장소에 포함하지 않는다.
 
 ## 명령
 

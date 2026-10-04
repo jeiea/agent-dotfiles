@@ -7,8 +7,8 @@
     "hooks:install": "deno run --allow-read=deno.json,deno.jsonc,.git/hooks/ --allow-write=.git/hooks/ jsr:@hongminhee/deno-task-hooks",
     "hooks:pre-commit": "deno run -A npm:lint-staged@17.0.5 --hide-unstaged --config lint-staged.config.ts",
     "verify": { "dependencies": ["lint", "check", "test", "build"] },
-    "settings": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net $SOA_URL/src/main.ts settings",
-    "plugins": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=git $SOA_URL/src/main.ts plugins",
+    "settings": "fnox exec -- deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net $SOA_URL/src/main.ts settings",
+    "plugins": "fnox exec -- deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=git $SOA_URL/src/main.ts plugins",
     "lint": "deno lint --fix",
     "check": "deno check source/**/*.ts",
     "test": {
@@ -16,10 +16,10 @@
     },
     "test:deno": "deno test --allow-read --allow-write --allow-env --allow-run=git,jj --parallel source/",
     "test:permcheck": "permcheck validate",
-    "build": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --env-file=.env --allow-net $SOA_URL/src/main.ts build",
-    "install": "deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=claude,codex $SOA_URL/src/main.ts install",
+    "build": "fnox exec -- deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net $SOA_URL/src/main.ts build",
+    "install": "fnox exec -- deno run --import-map=$SOA_URL/import_map.json --allow-read --allow-write --allow-env --allow-net --allow-run=claude,codex $SOA_URL/src/main.ts install",
     "sync": "deno task build && deno task install",
-    "skill:delegate": "deno run -A https://raw.githubusercontent.com/jeiea/delegate/$(git ls-remote https://github.com/jeiea/delegate refs/heads/main | cut -f1)/src/delegate.ts --skill > source/skills/delegate/SKILL.md"
+    "skill:delegate": "fnox exec -- deno run -A https://raw.githubusercontent.com/jeiea/delegate/$(git ls-remote https://github.com/jeiea/delegate refs/heads/main | cut -f1)/src/delegate.ts --skill > source/skills/delegate/SKILL.md"
   },
   "fmt": {
     "include": [
