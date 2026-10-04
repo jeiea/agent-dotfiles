@@ -41,6 +41,7 @@ plugins = ["memory", "remote-skills", "work"]
 main_agent = "main"
 
 [clients.codex.config.features]
+daemon_auto_start = false
 hooks = true
 multi_agent = true
 terminal_resize_reflow = true
