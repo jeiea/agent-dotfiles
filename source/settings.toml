@@ -197,6 +197,70 @@ enabled = false
 name = "figma:figma-use-slides"
 enabled = false
 
+[[clients.codex.config.skills.config]]
+name = "figma:figma-generative-plugins"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "figma:figma-shaders"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "pages:maintain-space"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "pages:manage-schedules"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "pages:organize-space"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "pages:write-page"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "plugin-management:plugin-management"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "sites:sites"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "work-pets:create-pet"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "work-pets:pets"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "work-pets:update-pet"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "imagegen"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "openai-docs"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "review-agent"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "skill-creator"
+enabled = false
+
+[[clients.codex.config.skills.config]]
+name = "skill-installer"
+enabled = false
+
 [clients.pi]
 path = "clients/pi"
 plugins = ["remote-skills", "work"]
