@@ -37,7 +37,7 @@ main_agent = "main"
 
 [clients.codex]
 path = "clients/codex"
-plugins = ["memory", "remote-skills", "work"]
+plugins = ["codex-why", "memory", "remote-skills", "work"]
 main_agent = "main"
 
 [clients.codex.config.features]
