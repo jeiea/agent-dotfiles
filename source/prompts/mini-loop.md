@@ -30,7 +30,7 @@ allowed-tools: Skill(delegate) Skill(report-flavor) Skill(commit-flavor) Skill(f
 완료된 단계 확인 후 이어서 시작
 
 1. 유저에게 report-flavor로 예상 변경 공유
-   - 신규 파일 3개 이상 또는 원인 분석 결론 포함 시 컨펌 요청
+   - 결합 지점 변경 또는 원인 분석 결론 포함 시 컨펌 요청
 2. 커밋 단위로 직접 또는 위임해 구현·테스트·린트·정적 검사 수행
 3. commit-flavor 후 flavor-review로 요청·예상 변경·구현 결과 검토
    - Must fix는 근거 요구·기존 계약 명시, 없으면 제안 목록
