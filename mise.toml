@@ -2,4 +2,4 @@
 fnox = "1.35.1"
 
 [env]
-SOA_URL = "https://raw.githubusercontent.com/jeiea/soa/7e2b524"
+SOA_URL = "https://raw.githubusercontent.com/jeiea/soa/648b795"
