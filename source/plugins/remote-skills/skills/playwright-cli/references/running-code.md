@@ -1,6 +1,7 @@
 # Running Custom Playwright Code
 
-Use `run-code` to execute arbitrary Playwright code for advanced scenarios not covered by CLI commands.
+Use `run-code` to execute arbitrary Playwright code for advanced scenarios not
+covered by CLI commands.
 
 ## Syntax
 
@@ -17,9 +18,13 @@ You can also load the function from a file:
 playwright-cli run-code --filename=./my-script.js
 ```
 
+The code must be a single function expression, it is wrapped in `(...)` and
+evaluated. import/export/require syntax is not supported.
 
-The code must be a single function expression, it is wrapped in `(...)` and evaluated.
-import/export/require syntax is not supported.
+The code runs in an isolated context, not in a full Node.js environment.
+`require`, `process` and Node modules are not available. Timers (`setTimeout`,
+`setInterval`), `fetch`, `URL`, `Buffer`, `crypto`, `AbortController`,
+`TextEncoder` and `TextDecoder` are available.
 
 ## Geolocation
 

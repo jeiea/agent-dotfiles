@@ -4,7 +4,7 @@
     "remote-skills": {
       "sources": {
         "playwright-cli": {
-          "url": "github:microsoft/playwright-cli#eee5a185c98e6b04d88f580d45a854e9692ab50b&path:/skills/playwright-cli",
+          "url": "github:microsoft/playwright-cli#b85c7a736bb473bf55b584e54a09ffa698d6d871&path:/skills/playwright-cli",
           "resources": [
             "skills/playwright-cli"
           ]
