@@ -1,5 +1,5 @@
 default_action = "passthrough"
-bash_unwrap_patterns = ["/^\\w+=(?:\\\"(?:\\\\.|[^\\\"])*\\\"|'(?:\\\\.|[^'])*'|\\S+)\\s+(.+)$/", "mise x * -- *", "/^timeout \\d\\S* (.+)$/"]
+bash_unwrap_patterns = ["/^\\w+=(?:\\\"(?:\\\\.|[^\\\"])*\\\"|'(?:\\\\.|[^'])*'|\\S+)\\s+(.+)$/", "/^mise (?:x|exec)(?: (?!--(?: |$))\\S+)* -- (.+)$/", "/^timeout \\d\\S* (.+)$/"]
 
 [[rules]]
 tool = "PowerShell"
@@ -967,3 +967,21 @@ description = "herdr pane close passthrough"
 tool = "Bash"
 input = { command = "herdr pane close w5A:p3" }
 expect = "passthrough"
+
+[[tests]]
+description = "mise x unwrap splits at first double dash"
+tool = "Bash"
+input = { command = "mise x -- ls -- --ignored" }
+expect = "allow"
+
+[[tests]]
+description = "mise x unwrap with tool spec splits at first double dash"
+tool = "Bash"
+input = { command = "mise x node@20 -- grep -n x -- -D" }
+expect = "allow"
+
+[[tests]]
+description = "mise x unwrap deny propagates past later double dash"
+tool = "Bash"
+input = { command = "mise x -- rm -rf / -- ls" }
+expect = "deny"
