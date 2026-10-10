@@ -23,6 +23,8 @@ patterns = [
   "/^agent-slack message (list|get|draft)( .*)?$/",
   ":",
   "awk *",
+  "brew info *",
+  "/^cargo (build|check|clippy|fmt|test|run|info|tree|metadata|doc)( .*)?$/",
   "/^aws \\S+ (describe|list)-\\S+( .*)?$/",
   "cat *",
   "cd *",
@@ -30,6 +32,7 @@ patterns = [
   "claude --version",
   "claude auto-mode defaults",
   "codex *",
+  "codexbar usage *",
   "comm *",
   "cp *",
   "cut *",
@@ -63,6 +66,7 @@ patterns = [
   "jq *",
   "ls *",
   "lsof *",
+  "md5 *",
   "mise *",
   "mkdir *",
   "mktemp *",
@@ -77,7 +81,8 @@ patterns = [
   "pwd",
   "qmd *",
   "read *",
-  "/^rm(?: -[rRf]+)*(?: /private/tmp/claude(?:(?!\\.\\.)[\\w./*?-])*)+$/",
+  "/^rm(?: -[rRf]+)*(?: (?:/private)?/tmp/(?:(?!\\.\\.)(?:[\\w./*?-]|\\$\\$))+)+$/",
+  "rustfmt *",
   "permcheck *",
   "playwright-cli *",
   "reg query *",
@@ -89,10 +94,12 @@ patterns = [
   "sd *",
   "sed *",
   "seq *",
+  "/^set [-+][euxo]+(?: pipefail)?$/",
   "sleep *",
   "sort *",
   "tail *",
   "tar *",
+  "tr *",
   "/^tasklist( .*)?$/",
   "terminal-notifier *",
   "timeout *",
@@ -147,7 +154,7 @@ path = "/^(?!(?:[A-Za-z]:)?[\\\\/]*$).+$/"
 [[rules]]
 tool = "Skill"
 [rules.match]
-skill = "/^(zettelkasten|delegate|commit-flavor|draft-pr|gemini-query|list-issue-comments|list-pr-comments|code-flavor|tdd-flavor|mini-loop|(work:)?(get-pr-changes|figma)|(remote-skills:)?playwright-cli)$/"
+skill = "/^(zettelkasten|delegate|worktree-first|flavor-review|peer-review|commit-flavor|draft-pr|gemini-query|list-issue-comments|list-pr-comments|code-flavor|tdd-flavor|mini-loop|(work:)?(get-pr-changes|figma)|(remote-skills:)?playwright-cli)$/"
 
 [[rules]]
 tool = "SlashCommand"
@@ -927,9 +934,15 @@ input = { command = "rm -rf /private/tmp/claude-501/`whoami`" }
 expect = "passthrough"
 
 [[tests]]
-description = "rm non-claude tmp passthrough"
+description = "rm non-claude tmp allow"
 tool = "Bash"
 input = { command = "rm /private/tmp/other" }
+expect = "allow"
+
+[[tests]]
+description = "rm outside tmp passthrough"
+tool = "Bash"
+input = { command = "rm src/links.rs /Users/jarry/x" }
 expect = "passthrough"
 
 [[tests]]
@@ -971,13 +984,13 @@ expect = "passthrough"
 [[tests]]
 description = "mise x unwrap splits at first double dash"
 tool = "Bash"
-input = { command = "mise x -- ls -- --ignored" }
+input = { command = "mise x -- cargo test --locked -- --ignored --test-threads=1 user_can_change_layout" }
 expect = "allow"
 
 [[tests]]
 description = "mise x unwrap with tool spec splits at first double dash"
 tool = "Bash"
-input = { command = "mise x node@20 -- grep -n x -- -D" }
+input = { command = "mise x rust@1 -- cargo clippy --all-targets --locked -- -D warnings" }
 expect = "allow"
 
 [[tests]]
@@ -985,3 +998,57 @@ description = "mise x unwrap deny propagates past later double dash"
 tool = "Bash"
 input = { command = "mise x -- rm -rf / -- ls" }
 expect = "deny"
+
+[[tests]]
+description = "cargo build tools allow"
+tool = "Bash"
+input = { command = "cargo fmt --check && cargo build && cargo run -q && cargo info notify@8 && cargo test --bin smr links" }
+expect = "allow"
+
+[[tests]]
+description = "cargo add passthrough"
+tool = "Bash"
+input = { command = "cargo add notify@8" }
+expect = "passthrough"
+
+[[tests]]
+description = "rust and text utilities allow"
+tool = "Bash"
+input = { command = "set -e; rustfmt --edition 2024 src/main.rs; md5 src/links.rs; echo a | tr -s ' '" }
+expect = "allow"
+
+[[tests]]
+description = "codexbar usage and brew info allow"
+tool = "Bash"
+input = { command = "codexbar usage --provider claude --format json; brew info codexbar" }
+expect = "allow"
+
+[[tests]]
+description = "alias passthrough"
+tool = "Bash"
+input = { command = "alias" }
+expect = "passthrough"
+
+[[tests]]
+description = "rm -rf tmp dir with pid allow"
+tool = "Bash"
+input = { command = "rm -rf /tmp/smr-keys-data-$$ /private/tmp/rmux-501/x" }
+expect = "allow"
+
+[[tests]]
+description = "rm -rf tmp path traversal deny"
+tool = "Bash"
+input = { command = "rm -rf /tmp/../Users/jarry" }
+expect = "deny"
+
+[[tests]]
+description = "rm -rf tmp with variable expansion deny"
+tool = "Bash"
+input = { command = "rm -rf /tmp/$HOME" }
+expect = "deny"
+
+[[tests]]
+description = "review skills allow"
+tool = "Skill"
+input = { skill = "flavor-review" }
+expect = "allow"
